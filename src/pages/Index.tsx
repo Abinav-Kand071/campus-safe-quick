@@ -22,11 +22,14 @@ const Index = () => {
         </p>
       </div>
 
-      {/* Access Portals */}
+      {/* Access Portals Container */}
       <div className="grid md:grid-cols-2 gap-6 w-full max-w-4xl animate-slide-up">
         
-        {/* Student Portal Card */}
-        <Card className="glass group hover:border-primary/50 transition-all duration-300 hover:shadow-lg cursor-pointer" onClick={() => navigate('/student/login')}>
+        {/* === STUDENT PORTAL === */}
+        <Card 
+            className="glass group hover:border-primary/50 transition-all duration-300 hover:shadow-lg cursor-pointer relative overflow-hidden" 
+            onClick={() => navigate('/student/login')}
+        >
           <CardHeader>
             <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
               <GraduationCap className="w-6 h-6 text-primary" />
@@ -36,11 +39,11 @@ const Index = () => {
               <ArrowRight className="w-4 h-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
             </CardTitle>
             <CardDescription>
-              Access for registered students to report incidents and view safety alerts.
+              Access for registered students to report incidents.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2 text-sm text-muted-foreground">
+            <ul className="space-y-2 text-sm text-muted-foreground mb-6">
               <li className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-primary" />
                 Real-time Incident Reporting
@@ -50,38 +53,42 @@ const Index = () => {
                 Anonymous Safety Checks
               </li>
             </ul>
-            <Button className="w-full mt-6" variant="outline">
+            {/* Pointer events none ensures clicking the button triggers the Card onClick */}
+            <Button className="w-full pointer-events-none" variant="outline">
               Student Login
             </Button>
           </CardContent>
         </Card>
 
-        {/* Administration Portal Card */}
-        <Card className="glass group hover:border-primary/50 transition-all duration-300 hover:shadow-lg cursor-pointer" onClick={() => navigate('/admin/login')}>
+        {/* === ADMIN PORTAL === */}
+        <Card 
+            className="glass group hover:border-red-500/50 transition-all duration-300 hover:shadow-lg cursor-pointer relative overflow-hidden" 
+            onClick={() => navigate('/admin/login')}
+        >
           <CardHeader>
             <div className="w-12 h-12 rounded-lg bg-red-500/10 flex items-center justify-center mb-4 group-hover:bg-red-500/20 transition-colors">
               <Lock className="w-6 h-6 text-red-600" />
             </div>
             <CardTitle className="flex items-center gap-2">
-              Security Administration
+              Security Admin
               <ArrowRight className="w-4 h-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
             </CardTitle>
             <CardDescription>
-              Restricted access for Wardens, Principals, and Security Heads.
+              Restricted access for Wardens & Security.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2 text-sm text-muted-foreground">
+            <ul className="space-y-2 text-sm text-muted-foreground mb-6">
               <li className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-red-500" />
                 Live Command Center
               </li>
               <li className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-red-500" />
-                Biometric User Management
+                User Ban Management
               </li>
             </ul>
-            <Button className="w-full mt-6 bg-slate-900 text-white hover:bg-slate-800">
+            <Button className="w-full bg-slate-900 text-white pointer-events-none">
               Admin Access
             </Button>
           </CardContent>
@@ -89,11 +96,11 @@ const Index = () => {
 
       </div>
 
-      {/* Footer / Disclaimer */}
-      <p className="mt-12 text-sm text-muted-foreground text-center">
+      {/* Footer */}
+      <p className="mt-12 text-sm text-muted-foreground text-center animate-fade-in">
         Restricted Access System • Authorized Personnel Only
         <br />
-        <span className="text-xs opacity-50">v2.0.0 • Secure Build</span>
+        <span className="text-xs opacity-50">Secure Build v2.1</span>
       </p>
     </div>
   );
