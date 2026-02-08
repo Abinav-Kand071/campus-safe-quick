@@ -1,35 +1,77 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Shield, User, UserCheck } from 'lucide-react';
+import { Shield, Lock, Fingerprint, UserCheck, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 const StudentLogin = () => {
   const navigate = useNavigate();
-  const { loginWithCollegeId, loginAsGuest } = useAuth();
-  const [collegeId, setCollegeId] = useState('');
-  const [name, setName] = useState('');
+  // UPDATE: 'student' is now 'user' in our new hook
+  const { loginWithCollegeId, user } = useAuth();
+  
+  const [formData, setFormData] = useState({
+    name: '',
+    collegeId: '',
+    biometricId: '',
+    password: '',
+    confirmPassword: ''
+  });
 
-  const handleCollegeLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!collegeId.trim() || !name.trim()) {
-      toast.error('Please enter both College ID and Name');
-      return;
+  const [loading, setLoading] = useState(false);
+
+  // Auto-redirect if already logged in
+  useEffect(() => {
+    // Check if 'user' exists and is a student
+    if (user && user.role === 'student') {
+      navigate('/student/dashboard');
     }
-    loginWithCollegeId(collegeId, name);
-    toast.success('Logged in successfully!');
-    navigate('/student/dashboard');
+  }, [user, navigate]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { id, value } = e.target;
+    setFormData(prev => ({ ...prev, [id]: value }));
   };
 
-  const handleGuestLogin = () => {
-    loginAsGuest();
-    toast.success('Joined as guest!');
-    navigate('/student/dashboard');
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { name, collegeId, biometricId, password, confirmPassword } = formData;
+
+    if (!name.trim() || !collegeId.trim() || !biometricId.trim() || !password || !confirmPassword) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    if (!collegeId.includes('248')) {
+      toast.error('Invalid College ID. Must contain the mandatory code "248".');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
+    const biometricRegex = /^\d{5}-\d{5}$/;
+    if (!biometricRegex.test(biometricId)) {
+      toast.error('Invalid Biometric ID format. Use: 12345-67890');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await loginWithCollegeId(collegeId, name, biometricId, password);
+      toast.success('Registration request sent! Please wait for admin approval.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'An unexpected error occurred';
+      console.error(error);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -40,78 +82,104 @@ const StudentLogin = () => {
             <Shield className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-3xl font-bold text-foreground">Campus Safety</h1>
-          <p className="text-muted-foreground mt-2">Report incidents to keep our campus safe</p>
+          <p className="text-muted-foreground mt-2">Student Secure Access Portal</p>
         </div>
 
-        <Card className="glass">
+        <Card className="glass border-primary/10 shadow-xl">
           <CardHeader>
-            <CardTitle>Student Login</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <UserCheck className="w-5 h-5 text-primary" />
+              Student Registration
+            </CardTitle>
             <CardDescription>
-              Login with your college ID or continue as a guest
+              Enter your credentials and biometric ID to request access.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="college" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="college" className="flex items-center gap-2">
-                  <UserCheck className="w-4 h-4" />
-                  College ID
-                </TabsTrigger>
-                <TabsTrigger value="guest" className="flex items-center gap-2">
-                  <User className="w-4 h-4" />
-                  Guest
-                </TabsTrigger>
-              </TabsList>
+            <form onSubmit={handleLogin} className="space-y-4">
               
-              <TabsContent value="college" className="space-y-4 mt-4">
-                <form onSubmit={handleCollegeLogin} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Full Name</Label>
-                    <Input
-                      id="name"
-                      placeholder="Enter your full name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="collegeId">College ID</Label>
-                    <Input
-                      id="collegeId"
-                      placeholder="e.g., STU2024001"
-                      value={collegeId}
-                      onChange={(e) => setCollegeId(e.target.value)}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full">
-                    Login with College ID
-                  </Button>
-                </form>
-              </TabsContent>
-              
-              <TabsContent value="guest" className="space-y-4 mt-4">
-                <div className="text-center py-6">
-                  <User className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground mb-4">
-                    Continue as a guest to report incidents anonymously. 
-                    No registration required.
-                  </p>
-                  <Button onClick={handleGuestLogin} className="w-full" variant="secondary">
-                    Continue as Guest
-                  </Button>
-                </div>
-              </TabsContent>
-            </Tabs>
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name</Label>
+                <Input
+                  id="name"
+                  placeholder="Enter your full name"
+                  value={formData.name}
+                  onChange={handleChange}
+                />
+              </div>
 
-            <div className="mt-6 pt-6 border-t border-border">
+              <div className="space-y-2">
+                <Label htmlFor="collegeId">College ID</Label>
+                <Input
+                  id="collegeId"
+                  placeholder="e.g., 00000-XX-000" 
+                  value={formData.collegeId}
+                  onChange={handleChange}
+                />
+                <p className="text-[10px] text-muted-foreground">Must contain college code '248'</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="biometricId" className="flex items-center gap-2">
+                  <Fingerprint className="w-4 h-4" />
+                  Biometric ID
+                </Label>
+                <Input
+                  id="biometricId"
+                  placeholder="00000-00000"
+                  value={formData.biometricId}
+                  onChange={handleChange}
+                  className="font-mono text-sm"
+                  maxLength={11} 
+                />
+                <p className="text-[10px] text-muted-foreground">Format: 12345-67890</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Create a strong password"
+                    className="pl-9"
+                    value={formData.password}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="Re-enter your password"
+                    className="pl-9"
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
               <Button 
-                variant="link" 
-                className="w-full text-muted-foreground"
-                onClick={() => navigate('/admin/login')}
+                type="submit" 
+                className="w-full gradient-primary hover:opacity-90 transition-opacity"
+                disabled={loading}
               >
-                Admin Login →
+                {loading ? 'Processing...' : 'Request Access'}
+              </Button>
+            </form>
+            
+            <div className="mt-4 text-center">
+              <Button variant="link" onClick={() => navigate('/student/dashboard')} className="text-xs text-muted-foreground">
+                 Already logged in? Go to Dashboard <ArrowRight className="w-3 h-3 ml-1"/>
               </Button>
             </div>
+
           </CardContent>
         </Card>
       </div>

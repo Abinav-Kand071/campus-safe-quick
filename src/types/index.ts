@@ -43,8 +43,10 @@ export interface Incident {
 export interface Student {
   id: string;
   collegeId?: string;
+  biometricId: string;
   isGuest: boolean;
   name: string;
+  isApproved: boolean;
 }
 
 export interface Admin {
