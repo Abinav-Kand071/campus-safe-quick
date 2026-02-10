@@ -5,121 +5,121 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Shield, ShieldCheck, Lock } from 'lucide-react';
+import { ShieldCheck, Lock, Loader2 } from 'lucide-react'; // Added Loader icon
 import { toast } from 'sonner';
-import { ADMIN_ROLES, AdminRole } from '@/types';
+import { supabase } from '@/lib/supabase';
 
 const AdminLogin = () => {
   const navigate = useNavigate();
   const { loginAsAdmin } = useAuth();
-  const [name, setName] = useState('');
-  const [role, setRole] = useState<AdminRole | ''>('');
+  
+  // We only need Email & Password for real auth
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+ const handleLogin = async (e) => {
     e.preventDefault();
-    
-    if (!name.trim() || !role || !email.trim() || !phone.trim()) {
-      toast.error('Please fill in all fields');
-      return;
-    }
+    setLoading(true);
 
-    if (!email.includes('@')) {
-      toast.error('Please enter a valid email address');
-      return;
-    }
+    try {
+      // 1. Check Supabase for the Admin
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .eq('password', password) // Validates credentials
+        .eq('role', 'admin')      // Ensures they are actually an admin
+        .single();
 
-    if (phone.length < 10) {
-      toast.error('Please enter a valid phone number');
-      return;
-    }
+      if (error || !data) {
+        toast.error('Invalid Credentials or Access Denied');
+        setLoading(false);
+        return;
+      }
 
-    loginAsAdmin(name, role as AdminRole, email, phone);
-    toast.success(`Logged in as ${ADMIN_ROLES.find(r => r.value === role)?.label}`);
-    navigate('/admin/dashboard');
+      // 2. Success! Log them in via your hook
+      // FIX APPLIED HERE: We use the REAL role from the database
+      loginAsAdmin(
+        data.name || 'Admin', 
+        data.role || 'security_guard', // Fallback to security_guard if role is missing
+        email, 
+        '0000000000'
+      ); 
+      
+      toast.success('Welcome back, Admin');
+      navigate('/admin/dashboard');
+
+    } catch (err) {
+      toast.error('Something went wrong during login');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
       <div className="w-full max-w-md animate-slide-up">
+        {/* Header Section */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl gradient-primary mb-4">
             <ShieldCheck className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-3xl font-bold text-foreground">Admin Portal</h1>
-          <p className="text-muted-foreground mt-2">Manage campus safety incidents</p>
+          <p className="text-muted-foreground mt-2">Secure Campus Access</p>
         </div>
 
         <Card className="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Lock className="w-5 h-5 text-primary" />
-              Admin Authentication
+              Admin Login
             </CardTitle>
             <CardDescription>
-              Enter your credentials to access the admin dashboard
+              Enter your authorized credentials
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
+              
+              {/* Email Field */}
               <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  placeholder="Enter your full name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
-                <Select value={role} onValueChange={(val) => setRole(val as AdminRole)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select your role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ADMIN_ROLES.map((r) => (
-                      <SelectItem key={r.value} value={r.value}>
-                        {r.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {role === 'security_guard' && (
-                  <p className="text-xs text-warning">
-                    Note: Security Guards can view reports but cannot change their status
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
+                <Label htmlFor="email">Admin Email</Label>
                 <Input
                   id="email"
                   type="email"
                   placeholder="admin@college.edu"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
                 />
               </div>
 
+              {/* Password Field - CRITICAL ADDITION */}
               <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
+                <Label htmlFor="password">Password</Label>
                 <Input
-                  id="phone"
-                  type="tel"
-                  placeholder="+91 XXXXX XXXXX"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
                 />
               </div>
 
-              <Button type="submit" className="w-full">
-                <ShieldCheck className="w-4 h-4 mr-2" />
-                Access Dashboard
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? (
+                   <>
+                     <Loader2 className="w-4 h-4 mr-2 animate-spin" /> 
+                     Verifying...
+                   </>
+                ) : (
+                   <>
+                     <ShieldCheck className="w-4 h-4 mr-2" />
+                     Access Dashboard
+                   </>
+                )}
               </Button>
             </form>
 
@@ -129,7 +129,7 @@ const AdminLogin = () => {
                 className="w-full text-muted-foreground"
                 onClick={() => navigate('/')}
               >
-                ← Back to Student Login
+                ← Back to Home
               </Button>
             </div>
           </CardContent>

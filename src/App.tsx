@@ -1,36 +1,36 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Routes, Route } from 'react-router-dom';
+import ProtectedRoute from './components/ProtectedRoute';
+import Index from './pages/Index';
+import AdminLogin from './pages/AdminLogin';
+import StudentLogin from './pages/StudentLogin';
+import AdminDashboard from './pages/AdminDashboard';
+import StudentDashboard from './pages/StudentDashboard';
+import NotFound from './pages/NotFound';
 
-import { AuthProvider } from "@/hooks/useAuth";
-import StudentLogin from "./pages/StudentLogin";
-import StudentDashboard from "./pages/StudentDashboard";
-import AdminLogin from "./pages/AdminLogin";
-import AdminDashboard from "./pages/AdminDashboard";
-import NotFound from "./pages/NotFound";
+function App() {
+  return (
+    <Routes>
+      {/* Public Routes */}
+      <Route path="/" element={<Index />} />
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/student/login" element={<StudentLogin />} />
 
-const queryClient = new QueryClient();
+      {/* --- PROTECTED ADMIN ROUTES --- */}
+      {/* Only 'admin' role can enter here */}
+      <Route element={<ProtectedRoute allowedRole="admin" />}>
+        <Route path="/admin-dashboard" element={<AdminDashboard />} />
+      </Route>
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
-          <Routes>
-            <Route path="/" element={<StudentLogin />} />
-            <Route path="/student/dashboard" element={<StudentDashboard />} />
-            <Route path="/admin/login" element={<AdminLogin />} />
-            <Route path="/admin/dashboard" element={<AdminDashboard />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+      {/* --- PROTECTED STUDENT ROUTES --- */}
+      {/* Only 'student' role can enter here */}
+      <Route element={<ProtectedRoute allowedRole="student" />}>
+        <Route path="/student-dashboard" element={<StudentDashboard />} />
+      </Route>
+
+      {/* 404 Page */}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+}
 
 export default App;
