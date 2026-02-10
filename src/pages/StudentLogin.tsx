@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Shield, Lock, Fingerprint, UserCheck, ArrowRight } from 'lucide-react';
+import { Shield, Lock, Fingerprint, UserCheck, ArrowRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const StudentLogin = () => {
   const navigate = useNavigate();
-  // UPDATE: 'student' is now 'user' in our new hook
-  const { loginWithCollegeId, user } = useAuth();
+  const { user } = useAuth();
   
   const [formData, setFormData] = useState({
     name: '',
@@ -25,7 +25,6 @@ const StudentLogin = () => {
 
   // Auto-redirect if already logged in
   useEffect(() => {
-    // Check if 'user' exists and is a student
     if (user && user.role === 'student') {
       navigate('/student/dashboard');
     }
@@ -36,10 +35,11 @@ const StudentLogin = () => {
     setFormData(prev => ({ ...prev, [id]: value }));
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleRequestAccess = async (e: React.FormEvent) => {
     e.preventDefault();
     const { name, collegeId, biometricId, password, confirmPassword } = formData;
 
+    // --- VALIDATION STEPS ---
     if (!name.trim() || !collegeId.trim() || !biometricId.trim() || !password || !confirmPassword) {
       toast.error('Please fill in all fields');
       return;
@@ -61,14 +61,44 @@ const StudentLogin = () => {
       return;
     }
 
+    // --- SEND REQUEST TO SUPABASE ---
     try {
       setLoading(true);
-      await loginWithCollegeId(collegeId, name, biometricId, password);
-      toast.success('Registration request sent! Please wait for admin approval.');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'An unexpected error occurred';
-      console.error(error);
-      toast.error(message);
+
+      // We insert the new student into the 'users' table
+      // IMPORTANT: We map 'collegeId' to the 'email' column as per your database setup
+      const { error } = await supabase.from('users').insert({
+        name: name,
+        email: collegeId,      // Storing College ID in the email column
+        password: password,    // In production, this should be hashed!
+        role: 'student',
+        status: 'pending',     // This triggers the "Wait for Approval" flow
+        phone: biometricId     // Storing Biometric ID in phone column (or add a new column if you prefer)
+      });
+
+      if (error) {
+        // Handle "User already exists" error
+        if (error.code === '23505') { // Postgres code for unique violation
+             throw new Error("This College ID is already registered.");
+        }
+        throw error;
+      }
+
+      toast.success('Request Sent! Please wait for Admin approval.');
+      
+      // Optional: Clear form
+      setFormData({
+        name: '',
+        collegeId: '',
+        biometricId: '',
+        password: '',
+        confirmPassword: ''
+      });
+
+    } catch (err: unknown) {
+      console.error(err);
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(message || 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
@@ -89,14 +119,14 @@ const StudentLogin = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserCheck className="w-5 h-5 text-primary" />
-              Student Registration
+              Request Access
             </CardTitle>
             <CardDescription>
-              Enter your credentials and biometric ID to request access.
+              Enter your credentials to request admin approval.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleRequestAccess} className="space-y-4">
               
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name</Label>
@@ -112,7 +142,7 @@ const StudentLogin = () => {
                 <Label htmlFor="collegeId">College ID</Label>
                 <Input
                   id="collegeId"
-                  placeholder="e.g., 00000-XX-000" 
+                  placeholder="e.g., 21K91A0248" 
                   value={formData.collegeId}
                   onChange={handleChange}
                 />
@@ -126,13 +156,12 @@ const StudentLogin = () => {
                 </Label>
                 <Input
                   id="biometricId"
-                  placeholder="00000-00000"
+                  placeholder="12345-67890"
                   value={formData.biometricId}
                   onChange={handleChange}
                   className="font-mono text-sm"
                   maxLength={11} 
                 />
-                <p className="text-[10px] text-muted-foreground">Format: 12345-67890</p>
               </div>
 
               <div className="space-y-2">
@@ -170,13 +199,18 @@ const StudentLogin = () => {
                 className="w-full gradient-primary hover:opacity-90 transition-opacity"
                 disabled={loading}
               >
-                {loading ? 'Processing...' : 'Request Access'}
+                {loading ? (
+                    <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Sending Request...
+                    </>
+                ) : 'Request Access'}
               </Button>
             </form>
             
             <div className="mt-4 text-center">
-              <Button variant="link" onClick={() => navigate('/student/dashboard')} className="text-xs text-muted-foreground">
-                 Already logged in? Go to Dashboard <ArrowRight className="w-3 h-3 ml-1"/>
+              <Button variant="link" onClick={() => navigate('/')} className="text-xs text-muted-foreground">
+                 Already have access? Login here <ArrowRight className="w-3 h-3 ml-1"/>
               </Button>
             </div>
 
