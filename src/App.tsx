@@ -1,13 +1,13 @@
 import { Routes, Route } from 'react-router-dom';
-import ProtectedRoute from './components/ProtectedRoute';
+import ProtectedRoute from './components/ProtectedRoute'; // Ensure this matches your filename!
 import Index from './pages/Index';
 import AdminLogin from './pages/AdminLogin';
 import StudentLogin from './pages/StudentLogin';
 import AdminDashboard from './pages/AdminDashboard';
-import StudentDashboard from './pages/StudentDashboard';
-import NotFound from './pages/NotFound';
+import StudentDashboard from './pages/StudentDashboard'; // If you have this created
+import NotFound from './pages/NotFound'; // Or whatever your 404 page is called
 
-function App() {
+const App = () => {
   return (
     <Routes>
       {/* Public Routes */}
@@ -15,22 +15,21 @@ function App() {
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/student/login" element={<StudentLogin />} />
 
-      {/* --- PROTECTED ADMIN ROUTES --- */}
-      {/* Only 'admin' role can enter here */}
+      {/* PROTECTED ADMIN ROUTE */}
+      {/* This is the missing piece! */}
       <Route element={<ProtectedRoute allowedRole="admin" />}>
-        <Route path="/admin-dashboard" element={<AdminDashboard />} />
+        <Route path="/admin/dashboard" element={<AdminDashboard />} />
       </Route>
 
-      {/* --- PROTECTED STUDENT ROUTES --- */}
-      {/* Only 'student' role can enter here */}
+      {/* PROTECTED STUDENT ROUTE (Optional for now) */}
       <Route element={<ProtectedRoute allowedRole="student" />}>
-        <Route path="/student-dashboard" element={<StudentDashboard />} />
+         <Route path="/student/dashboard" element={<StudentDashboard />} />
       </Route>
 
-      {/* 404 Page */}
+      {/* Catch-all for 404 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
-}
+};
 
 export default App;
