@@ -18,14 +18,12 @@ import { CAMPUS_LOCATIONS, INCIDENT_TYPES, CampusLocation, IncidentType, Inciden
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
-  // UPDATE: Use 'user' and 'logout' (matches new useAuth)
   const { user, logout } = useAuth();
   const { incidents, addIncident } = useIncidents();
 
   const [loading, setLoading] = useState(false);
   const [myIncidents, setMyIncidents] = useState<Incident[]>([]);
 
-  // Form State
   const [formData, setFormData] = useState({
     type: '' as IncidentType | '',
     location: '' as CampusLocation | '',
@@ -35,18 +33,14 @@ const StudentDashboard = () => {
 
   useEffect(() => {
     if (user && incidents.length > 0) {
-      // Filter: Show incidents that match this user's email or ID
-      // We check both just to be safe with the new DB structure
-      const mine = incidents.filter(inc => inc.reportedBy === user.id || inc.reportedBy === user.email);
-      
-      // Sort: Newest first
+      const mine = incidents.filter(inc => inc.reportedBy === user.email || inc.reportedBy === user.id);
       mine.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       setMyIncidents(mine);
     }
   }, [incidents, user]);
 
   const handleLogout = () => {
-    logout(); // UPDATE: generic logout
+    logout();
     navigate('/');
   };
 
@@ -59,12 +53,16 @@ const StudentDashboard = () => {
 
     try {
       setLoading(true);
+      // Determine reporter identity (Email if known, otherwise ID)
+      const reporterId = formData.isAnonymous ? 'Anonymous' : (user?.email || user?.id || 'Unknown');
+      
       await addIncident(
         formData.location as CampusLocation,
         formData.type as IncidentType,
         formData.description,
-        user?.email || user?.id || 'unknown' // UPDATE: Use email/id from user
+        reporterId
       );
+      
       toast.success('Incident reported successfully!');
       setFormData({ type: '', location: '', description: '', isAnonymous: false });
     } catch (error) {
@@ -75,31 +73,13 @@ const StudentDashboard = () => {
     }
   };
 
-  // --- SAFETY NET FIX ---
-  const getSafeStatus = (status: string | undefined | null) => {
-    if (!status) return 'reported';
-    return status;
-  };
-
+  // Helper for status colors
   const getStatusColor = (status: string) => {
-    const safeStatus = getSafeStatus(status);
-    switch (safeStatus) {
+    switch (status) {
       case 'reported': return 'bg-yellow-500/10 text-yellow-600 border-yellow-200';
-      case 'under_review': return 'bg-blue-500/10 text-blue-600 border-blue-200';
-      case 'action_taken': return 'bg-purple-500/10 text-purple-600 border-purple-200';
+      case 'investigating': return 'bg-blue-500/10 text-blue-600 border-blue-200';
       case 'resolved': return 'bg-green-500/10 text-green-600 border-green-200';
       default: return 'bg-gray-100 text-gray-600';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    const safeStatus = getSafeStatus(status);
-    switch (safeStatus) {
-      case 'reported': return 'Pending Review';
-      case 'under_review': return 'Investigation Started';
-      case 'action_taken': return 'Action Taken';
-      case 'resolved': return 'Resolved';
-      default: return safeStatus;
     }
   };
 
@@ -231,7 +211,7 @@ const StudentDashboard = () => {
                           </h4>
                         </div>
                         <Badge variant="outline" className={`${getStatusColor(incident.status)} border capitalize`}>
-                          {getStatusLabel(incident.status)}
+                          {incident.status}
                         </Badge>
                       </div>
                       
@@ -241,7 +221,7 @@ const StudentDashboard = () => {
 
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <MapPin className="w-3 h-3" />
-                        <span>{INCIDENT_TYPES.find(t => t.value === incident.type)?.label || incident.type}</span>
+                        <span>{incident.type}</span>
                       </div>
                     </CardContent>
                   </Card>
@@ -249,7 +229,6 @@ const StudentDashboard = () => {
               )}
             </div>
           </TabsContent>
-
         </Tabs>
       </main>
     </div>

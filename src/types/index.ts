@@ -16,16 +16,19 @@ export type IncidentType =
   | 'suspicious_activity'
   | 'other';
 
+// --- IMPROVED STATUSES ---
 export type IncidentStatus = 
-  | 'reported'
-  | 'under_review'
-  | 'action_taken'
-  | 'resolved';
+  | 'reported'      // Initial state
+  | 'investigating'   // Security is on the way/looking at it
+  | 'action_taken'  // Steps taken to mitigate
+  | 'resolved';     // Case closed
 
+// Added 'admin' to roles to match your login logic
 export type AdminRole = 
   | 'security_guard'
   | 'security_head'
-  | 'principal';
+  | 'principal'
+  | 'admin';
 
 export interface Incident {
   id: string;
@@ -47,6 +50,7 @@ export interface Student {
   isGuest: boolean;
   name: string;
   isApproved: boolean;
+  role: 'student';
 }
 
 export interface Admin {
@@ -64,15 +68,7 @@ export interface LocationStats {
 }
 
 export const CAMPUS_LOCATIONS: CampusLocation[] = [
-  'Block A',
-  'Block K',
-  'Block T',
-  'New Block',
-  'Playground',
-  'Parking',
-  'Pharmacy Block',
-  'Boys Hostel',
-  'Girls Hostel',
+  'Block A', 'Block K', 'Block T', 'New Block', 'Playground', 'Parking', 'Pharmacy Block', 'Boys Hostel', 'Girls Hostel',
 ];
 
 export const INCIDENT_TYPES: { value: IncidentType; label: string }[] = [
@@ -84,8 +80,8 @@ export const INCIDENT_TYPES: { value: IncidentType; label: string }[] = [
 ];
 
 export const INCIDENT_STATUSES: { value: IncidentStatus; label: string }[] = [
-  { value: 'reported', label: 'Reported' },
-  { value: 'under_review', label: 'Under Review' },
+  { value: 'reported', label: 'New Report' },
+  { value: 'investigating', label: 'Investigating' },
   { value: 'action_taken', label: 'Action Taken' },
   { value: 'resolved', label: 'Resolved' },
 ];
@@ -94,4 +90,5 @@ export const ADMIN_ROLES: { value: AdminRole; label: string }[] = [
   { value: 'security_guard', label: 'Security Guard' },
   { value: 'security_head', label: 'Security Head' },
   { value: 'principal', label: 'Principal' },
+  { value: 'admin', label: 'System Admin' },
 ];
