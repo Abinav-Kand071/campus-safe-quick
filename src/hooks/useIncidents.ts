@@ -1,171 +1,119 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Incident, CampusLocation, IncidentType, IncidentStatus, LocationStats } from '@/types';
+import { Incident, CampusLocation, IncidentType, IncidentStatus } from '@/types';
 import { toast } from 'sonner';
-
-// 1. Define what the Database sends us (Snake Case)
-interface DBIncident {
-  id: string;
-  created_at: string;
-  description: string;
-  location: string;
-  status: string;
-  priority: string; // text in DB
-  reported_by: string;
-  image_url: string | null;
-  video_url: string | null;
-  type: string;
-}
 
 export const useIncidents = () => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // --- 1. FETCH & CONVERT ---
-  const fetchIncidents = useCallback(async () => {
+  // 1. Fetch Incidents (Real-time ready)
+  const fetchIncidents = async () => {
     try {
-      setLoading(true);
       const { data, error } = await supabase
         .from('incidents')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('timestamp', { ascending: false });
 
       if (error) throw error;
-
-      // Convert DB Row -> App Incident
-      const formattedData: Incident[] = (data as DBIncident[] || []).map((row) => ({
-        id: row.id,
-        location: row.location as CampusLocation,
-        type: (row.type || 'other') as IncidentType,
-        description: row.description || '',
-        videoUrl: row.video_url || undefined,
-        timestamp: row.created_at,
-        reportedBy: row.reported_by || 'Anonymous',
-        status: (row.status || 'reported') as IncidentStatus,
-        // Convert Text Priority (DB) to Number (App)
-        priority: row.priority === 'critical' ? 4 : row.priority === 'high' ? 3 : row.priority === 'medium' ? 2 : 1,
-        duplicateCount: 1, 
-      }));
-
-      setIncidents(formattedData);
-    } catch (error) {
-      console.error('Error fetching incidents:', error);
+      setIncidents(data || []);
+    } catch (err: unknown) {
+      console.error('Error fetching incidents:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
-  // Initial Load & Subscribe
   useEffect(() => {
     fetchIncidents();
-    const subscription = supabase
-      .channel('public:incidents')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, () => {
-        fetchIncidents();
-      })
-      .subscribe();
-    return () => { subscription.unsubscribe(); };
-  }, [fetchIncidents]);
+  }, []);
 
-  // --- 2. ADD INCIDENT ---
-  const addIncident = useCallback(async (
+  // 2. Add Incident (The Database Fix)
+  const addIncident = async (
     location: CampusLocation,
     type: IncidentType,
     description: string,
-    reportedBy: string,
-    videoUrl?: string
+    reportedBy: string
   ) => {
     try {
+      const newIncident = {
+        location,
+        type,
+        description,
+        reportedBy,
+        status: 'reported' as IncidentStatus,
+        timestamp: new Date().toISOString(),
+        priority: 1,
+        duplicateCount: 0
+      };
+
       const { data, error } = await supabase
         .from('incidents')
-        .insert([{
-          location,
-          type,
-          description,
-          reported_by: reportedBy, // Map to DB column
-          video_url: videoUrl,    // Map to DB column
-          status: 'reported',
-          priority: 'medium'
-        }])
-        .select()
-        .single();
+        .insert([newIncident])
+        .select();
 
       if (error) throw error;
-      toast.success('Incident Reported');
-      return data;
-    } catch (error) {
-      // Use type assertion for error message
-      const message = (error as Error).message || 'Failed to report';
-      toast.error(message);
+
+      if (data) {
+        setIncidents(prev => [data[0], ...prev]);
+        return data[0];
+      }
+    } catch (err: unknown) {
+      let msg = "Failed to submit report";
+      if (err instanceof Error) msg = err.message;
+      toast.error(msg);
       return null;
     }
-  }, []);
+  };
 
-  // --- 3. UPDATE STATUS ---
-  const updateIncidentStatus = useCallback(async (id: string, status: IncidentStatus) => {
+  // 3. Update Status (For Admin/HoD)
+  const updateIncidentStatus = async (id: string, status: IncidentStatus) => {
     try {
-      setIncidents(prev => prev.map(inc => 
-        inc.id === id ? { ...inc, status } : inc
-      ));
-
       const { error } = await supabase
         .from('incidents')
         .update({ status })
         .eq('id', id);
 
       if (error) throw error;
-      toast.success(`Status updated`);
-    } catch (error) {
-      toast.error('Failed to update status');
-      fetchIncidents();
+      
+      setIncidents(prev => prev.map(inc => inc.id === id ? { ...inc, status } : inc));
+      toast.success(`Status updated to ${status}`);
+    } catch (err: unknown) {
+      toast.error("Failed to update status");
     }
-  }, [fetchIncidents]);
+  };
 
-  // --- 4. STATS ---
-  const getLocationStats = useCallback((): LocationStats[] => {
-    const stats: Record<string, number> = {};
-    incidents.forEach(incident => {
-      const loc = incident.location;
-      stats[loc] = (stats[loc] || 0) + 1;
-    });
+  // 4. Analytics: The Heatmap Logic
+  const getLocationStats = () => {
+    const stats = incidents.reduce((acc, inc) => {
+      acc[inc.location] = (acc[inc.location] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
 
     return Object.entries(stats).map(([location, count]) => {
       let severity: 'low' | 'medium' | 'high' | 'critical' = 'low';
-      if (count > 5) severity = 'high';
-      if (count > 10) severity = 'critical';
-
-      return {
-        location: location as CampusLocation,
-        count,
-        severity,
-      };
-    }).sort((a, b) => b.count - a.count);
-  }, [incidents]);
-
-  // Helper getters
-  const getPriorityLeaderboard = useCallback(() => incidents, [incidents]);
-  const getRecentIncidents = useCallback((limit = 10) => incidents.slice(0, limit), [incidents]);
-  
-  // Updated Filter Function to use proper types
-  const filterIncidents = useCallback((
-    locationFilter?: CampusLocation,
-    statusFilter?: IncidentStatus
-  ) => {
-    return incidents.filter(inc => {
-      if (locationFilter && inc.location !== locationFilter) return false;
-      if (statusFilter && inc.status !== statusFilter) return false;
-      return true;
+      if (count >= 10) severity = 'critical';
+      else if (count >= 6) severity = 'high';
+      else if (count >= 3) severity = 'medium';
+      
+      return { location: location as CampusLocation, count, severity };
     });
-  }, [incidents]);
+  };
 
-  return {
-    incidents,
-    loading,
-    addIncident,
-    updateIncidentStatus,
-    getLocationStats,
-    getPriorityLeaderboard,
-    getRecentIncidents,
-    filterIncidents,
+  const filterIncidents = (location?: CampusLocation, status?: IncidentStatus) => {
+    return incidents.filter(inc => {
+      const locMatch = !location || inc.location === location;
+      const statusMatch = !status || inc.status === status;
+      return locMatch && statusMatch;
+    });
+  };
+
+  return { 
+    incidents, 
+    loading, 
+    addIncident, 
+    updateIncidentStatus, 
+    getLocationStats, 
+    filterIncidents 
   };
 };

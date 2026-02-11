@@ -31,11 +31,20 @@ const StudentDashboard = () => {
     isAnonymous: false
   });
 
+  // --- FILTER REPORT HISTORY ---
   useEffect(() => {
     if (user && incidents.length > 0) {
-      const mine = incidents.filter(inc => inc.reportedBy === user.email || inc.reportedBy === user.id);
-      mine.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      setMyIncidents(mine);
+      // Filter incidents where reportedBy matches the user's email or ID
+      const mine = incidents.filter(inc => 
+        inc.reportedBy === user.email || inc.reportedBy === user.id
+      );
+      
+      // Sort: Newest first
+      const sortedMine = [...mine].sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+      
+      setMyIncidents(sortedMine);
     }
   }, [incidents, user]);
 
@@ -53,7 +62,7 @@ const StudentDashboard = () => {
 
     try {
       setLoading(true);
-      // Determine reporter identity (Email if known, otherwise ID)
+      // Determine reporter identity based on anonymity
       const reporterId = formData.isAnonymous ? 'Anonymous' : (user?.email || user?.id || 'Unknown');
       
       await addIncident(
@@ -78,6 +87,7 @@ const StudentDashboard = () => {
     switch (status) {
       case 'reported': return 'bg-yellow-500/10 text-yellow-600 border-yellow-200';
       case 'investigating': return 'bg-blue-500/10 text-blue-600 border-blue-200';
+      case 'action_taken': return 'bg-purple-500/10 text-purple-600 border-purple-200';
       case 'resolved': return 'bg-green-500/10 text-green-600 border-green-200';
       default: return 'bg-gray-100 text-gray-600';
     }
@@ -88,8 +98,8 @@ const StudentDashboard = () => {
       <header className="sticky top-0 z-50 glass border-b border-border">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center">
-              <Shield className="w-5 h-5 text-primary-foreground" />
+            <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center bg-blue-600">
+              <Shield className="w-5 h-5 text-white" />
             </div>
             <div>
               <h1 className="font-semibold text-foreground">Campus Safety</h1>
@@ -118,7 +128,7 @@ const StudentDashboard = () => {
               <History className="w-4 h-4 mr-2" />
               My Reports
               {myIncidents.length > 0 && (
-                <span className="ml-2 bg-primary/10 text-primary text-[10px] px-2 py-0.5 rounded-full">
+                <span className="ml-2 bg-primary/10 text-primary text-[10px] px-2 py-0.5 rounded-full font-bold">
                   {myIncidents.length}
                 </span>
               )}
@@ -210,18 +220,18 @@ const StudentDashboard = () => {
                             {incident.location}
                           </h4>
                         </div>
-                        <Badge variant="outline" className={`${getStatusColor(incident.status)} border capitalize`}>
-                          {incident.status}
+                        <Badge variant="outline" className={`${getStatusColor(incident.status)} border capitalize font-bold`}>
+                          {incident.status.replace('_', ' ')}
                         </Badge>
                       </div>
                       
-                      <div className="bg-muted/50 p-3 rounded-lg text-sm text-muted-foreground mb-3">
+                      <div className="bg-muted/50 p-3 rounded-lg text-sm text-muted-foreground mb-3 italic">
                         "{incident.description}"
                       </div>
 
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
                         <MapPin className="w-3 h-3" />
-                        <span>{incident.type}</span>
+                        <span className="capitalize">{incident.type.replace('_', ' ')}</span>
                       </div>
                     </CardContent>
                   </Card>

@@ -7,10 +7,10 @@ import { toast } from 'sonner';
 export interface User {
   id: string;
   name: string;
-  email: string; // Stores College ID for students
-  role: 'student' | 'admin' | 'security_head' | 'principal';
+  email: string; 
+  role: 'student' | 'admin' | 'security_head' | 'principal' | 'hod' | 'class_in_charge';
   status: string;
-  phone?: string; // Stores Biometric ID
+  phone?: string; 
   is_banned?: boolean;
 }
 
@@ -19,7 +19,6 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, pass: string, requiredRole?: string) => Promise<void>;
   logout: () => void;
-  // Admin helpers
   getAllStudents: () => Promise<User[]>;
   approveStudent: (id: string) => Promise<void>;
 }
@@ -31,17 +30,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // --- 1. CHECK SESSION ---
+  // --- 1. SESSION PERSISTENCE ---
   useEffect(() => {
     const checkSession = () => {
       try {
         const stored = localStorage.getItem('campus_user');
         if (stored) {
-          const parsedUser = JSON.parse(stored);
+          const parsedUser = JSON.parse(stored) as User;
           setUser(parsedUser);
         }
       } catch (e) {
-        console.error("Session check error", e);
+        console.error("Session recovery failed", e);
+        localStorage.removeItem('campus_user');
       } finally {
         setLoading(false);
       }
@@ -61,25 +61,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .eq('password', pass)
         .single();
 
-      if (error || !data) {
-        throw new Error('Invalid Credentials');
-      }
+      if (error || !data) throw new Error('Invalid Credentials');
 
-      // Role Check
+      // Role check
       if (requiredRole && data.role !== requiredRole && data.role !== 'admin') {
         throw new Error('Unauthorized Access');
       }
 
-      // Status Checks
       if (data.status === 'pending') throw new Error('Account pending approval');
       if (data.status === 'banned') throw new Error('Account banned');
 
-      // STRICT CASTING: Ensure data matches User type
       const loggedUser: User = {
         id: data.id,
         name: data.name,
         email: data.email,
-        role: data.role as User['role'], // Safe cast for strict union type
+        role: data.role as User['role'],
         status: data.status,
         phone: data.phone
       };
@@ -89,7 +85,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       toast.success(`Welcome back, ${data.name}`);
 
-      if (data.role === 'admin' || data.role === 'security_head') {
+      const isAdminRole = ['admin', 'security_head', 'principal', 'hod', 'class_in_charge'].includes(data.role);
+      
+      if (isAdminRole) {
         navigate('/admin/dashboard');
       } else {
         navigate('/student/dashboard');
@@ -97,14 +95,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     } catch (err: unknown) {
       let message = 'Login Failed';
-      if (err instanceof Error) message = err.message;
+      if (err instanceof Error) {
+        message = err.message;
+      }
       toast.error(message);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- 3. LOGOUT ---
   const logout = () => {
     setUser(null);
     localStorage.removeItem('campus_user');
@@ -112,7 +111,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     toast.info('Logged out');
   };
 
-  // --- 4. ADMIN HELPERS ---
+  // --- 3. ADMIN HELPERS ---
   const getAllStudents = async (): Promise<User[]> => {
     const { data, error } = await supabase
       .from('users')
@@ -123,19 +122,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error(error);
       return [];
     }
-
-    // FIX: Cast the raw DB response to our strict User type
-    // This removes the need for 'any' because we are explicitly telling TS what 'data' is.
-    const rows = (data || []) as User[]; 
-
-    return rows.map((u) => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      status: u.status,
-      phone: u.phone
-    }));
+    return (data || []) as User[];
   };
 
   const approveStudent = async (id: string) => {
@@ -149,20 +136,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      loading, 
-      login, 
-      logout,
-      getAllStudents,
-      approveStudent
-    }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, getAllStudents, approveStudent }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-// Hook
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) throw new Error("useAuth must be used within AuthProvider");
