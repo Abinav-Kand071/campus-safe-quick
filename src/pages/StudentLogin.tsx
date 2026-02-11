@@ -57,7 +57,7 @@ const StudentLogin = () => {
 
     const biometricRegex = /^\d{5}-\d{5}$/;
     if (!biometricRegex.test(biometricId)) {
-      toast.error('Invalid Biometric ID format. Use: 12345-67890');
+      toast.error('Invalid Biometric ID format. Use: 11726-00000');
       return;
     }
 
@@ -142,7 +142,7 @@ const StudentLogin = () => {
                 <Label htmlFor="collegeId">College ID</Label>
                 <Input
                   id="collegeId"
-                  placeholder="e.g., 21K91A0248" 
+                  placeholder="e.g., 00248-XX-000" 
                   value={formData.collegeId}
                   onChange={handleChange}
                 />
@@ -156,7 +156,7 @@ const StudentLogin = () => {
                 </Label>
                 <Input
                   id="biometricId"
-                  placeholder="12345-67890"
+                  placeholder="00000-00000"
                   value={formData.biometricId}
                   onChange={handleChange}
                   className="font-mono text-sm"
