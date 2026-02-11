@@ -1,10 +1,13 @@
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom"; // Add this
+import { BrowserRouter } from "react-router-dom";
+import { AuthProvider } from "./hooks/useAuth"; // IMPORT THIS
 import App from "./App.tsx";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
-  <BrowserRouter> {/* Wrap App in this */}
-    <App />
+  <BrowserRouter>
+    <AuthProvider> {/* TURN ON THE POWER */}
+      <App />
+    </AuthProvider>
   </BrowserRouter>
 );
