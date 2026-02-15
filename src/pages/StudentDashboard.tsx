@@ -6,13 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input'; // Imported Input
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Shield, LogOut, MapPin, AlertTriangle, Send, 
-  History, CheckCircle, Clock, Loader2 
-} from 'lucide-react';
+import { Shield, LogOut, MapPin, AlertTriangle, Send, History, Clock, CheckCircle, Loader2, EyeOff, Link as LinkIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { CAMPUS_LOCATIONS, INCIDENT_TYPES, CampusLocation, IncidentType, Incident } from '@/types';
 
@@ -23,71 +21,85 @@ const StudentDashboard = () => {
 
   const [loading, setLoading] = useState(false);
   const [myIncidents, setMyIncidents] = useState<Incident[]>([]);
-
   const [formData, setFormData] = useState({
     type: '' as IncidentType | '',
     location: '' as CampusLocation | '',
     description: '',
+    evidenceLink: '', // Added field for Image/Video URL
     isAnonymous: false
   });
 
-  // --- FILTER REPORT HISTORY ---
   useEffect(() => {
     if (user && incidents.length > 0) {
-      // Filter incidents where reportedBy matches the user's email or ID
-      const mine = incidents.filter(inc => 
-        inc.reportedBy === user.email || inc.reportedBy === user.id
-      );
-      
-      // Sort: Newest first
-      const sortedMine = [...mine].sort((a, b) => 
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
-      
-      setMyIncidents(sortedMine);
+      const mine = incidents.filter(inc => inc.reportedBy === user.email || inc.reportedBy === user.id);
+      mine.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setMyIncidents(mine);
     }
   }, [incidents, user]);
 
-  const handleLogout = () => {
-    logout();
-    navigate('/');
+  const handleLogout = () => { logout(); navigate('/'); };
+
+  const checkCooldown = (): boolean => {
+    const lastReportStr = localStorage.getItem('last_report_timestamp');
+    if (!lastReportStr) return true;
+    const lastReport = parseInt(lastReportStr);
+    const now = Date.now();
+    const cooldownMs = 5 * 60 * 1000; 
+
+    if (now - lastReport < cooldownMs) {
+      const minutesLeft = Math.ceil((cooldownMs - (now - lastReport)) / 60000);
+      toast.error(`Cooldown active. Wait ${minutesLeft}m.`);
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!checkCooldown()) return;
+
     if (!formData.type || !formData.location || !formData.description) {
-      toast.error('Please fill in all details');
+      toast.error('Please fill in required details');
       return;
     }
 
     try {
       setLoading(true);
-      // Determine reporter identity based on anonymity
-      const reporterId = formData.isAnonymous ? 'Anonymous' : (user?.email || user?.id || 'Unknown');
+      const reporterId = formData.isAnonymous 
+        ? 'Anonymous' 
+        : (user?.email || user?.id || 'Unknown Student');
       
-      await addIncident(
+      // We pass formData.evidenceLink as the last argument (which maps to video_url in DB)
+      // Note: You might need to update addIncident signature in useIncidents if it doesn't accept this yet.
+      // But based on your previous code, we can append it to description OR pass it if supported.
+      // Ideally, update addIncident to accept a 5th arg 'videoUrl'.
+      // For now, I will append it to description if your addIncident isn't updated, 
+      // BUT strictly speaking, we should update useIncidents.tsx to accept it.
+      // Assuming you updated useIncidents to match the DB:
+      
+      const result = await addIncident(
         formData.location as CampusLocation,
         formData.type as IncidentType,
-        formData.description,
+        formData.description + (formData.evidenceLink ? `\n\n[EVIDENCE]: ${formData.evidenceLink}` : ''), // Append to desc for safety
         reporterId
       );
       
-      toast.success('Incident reported successfully!');
-      setFormData({ type: '', location: '', description: '', isAnonymous: false });
+      if (result) {
+        toast.success(formData.isAnonymous ? 'Anonymous Report Sent!' : 'Incident reported successfully!');
+        localStorage.setItem('last_report_timestamp', Date.now().toString());
+        setFormData({ type: '', location: '', description: '', evidenceLink: '', isAnonymous: false });
+      }
     } catch (error) {
       toast.error('Failed to report incident');
-      console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Helper for status colors
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'reported': return 'bg-yellow-500/10 text-yellow-600 border-yellow-200';
       case 'investigating': return 'bg-blue-500/10 text-blue-600 border-blue-200';
-      case 'action_taken': return 'bg-purple-500/10 text-purple-600 border-purple-200';
       case 'resolved': return 'bg-green-500/10 text-green-600 border-green-200';
       default: return 'bg-gray-100 text-gray-600';
     }
@@ -95,10 +107,10 @@ const StudentDashboard = () => {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      <header className="sticky top-0 z-50 glass border-b border-border">
+      <header className="sticky top-0 z-50 glass border-b border-border bg-white/80 backdrop-blur-md">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center bg-blue-600">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg">
               <Shield className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -106,9 +118,7 @@ const StudentDashboard = () => {
               <p className="text-xs text-muted-foreground">Student Portal</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
-            <LogOut className="w-4 h-4" />
-          </Button>
+          <Button variant="ghost" size="sm" onClick={handleLogout}><LogOut className="w-4 h-4" /></Button>
         </div>
       </header>
 
@@ -120,31 +130,18 @@ const StudentDashboard = () => {
 
         <Tabs defaultValue="report" className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="report">
-              <AlertTriangle className="w-4 h-4 mr-2" />
-              Report Incident
-            </TabsTrigger>
+            <TabsTrigger value="report"><AlertTriangle className="w-4 h-4 mr-2" /> Report Incident</TabsTrigger>
             <TabsTrigger value="history">
-              <History className="w-4 h-4 mr-2" />
-              My Reports
-              {myIncidents.length > 0 && (
-                <span className="ml-2 bg-primary/10 text-primary text-[10px] px-2 py-0.5 rounded-full font-bold">
-                  {myIncidents.length}
-                </span>
-              )}
+              <History className="w-4 h-4 mr-2" /> My Reports
+              {myIncidents.length > 0 && <span className="ml-2 bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full font-bold">{myIncidents.length}</span>}
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="report" className="animate-fade-in">
-            <Card className="glass border-destructive/10 shadow-lg">
+            <Card className="glass border-red-100 shadow-lg">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-destructive">
-                  <AlertTriangle className="w-5 h-5" />
-                  New Report
-                </CardTitle>
-                <CardDescription>
-                  Emergency? Call 112 immediately. Use this form for campus incidents.
-                </CardDescription>
+                <CardTitle className="flex items-center gap-2 text-red-600"><AlertTriangle className="w-5 h-5" /> New Report</CardTitle>
+                <CardDescription>Emergency? Call 112.</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -152,9 +149,7 @@ const StudentDashboard = () => {
                     <Label>Location</Label>
                     <Select onValueChange={(val) => setFormData({...formData, location: val as CampusLocation})} value={formData.location}>
                       <SelectTrigger><SelectValue placeholder="Where did it happen?" /></SelectTrigger>
-                      <SelectContent>
-                        {CAMPUS_LOCATIONS.map(loc => <SelectItem key={loc} value={loc}>{loc}</SelectItem>)}
-                      </SelectContent>
+                      <SelectContent>{CAMPUS_LOCATIONS.map(loc => <SelectItem key={loc} value={loc}>{loc}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
 
@@ -162,33 +157,43 @@ const StudentDashboard = () => {
                     <Label>Incident Type</Label>
                     <Select onValueChange={(val) => setFormData({...formData, type: val as IncidentType})} value={formData.type}>
                       <SelectTrigger><SelectValue placeholder="What kind of incident?" /></SelectTrigger>
-                      <SelectContent>
-                        {INCIDENT_TYPES.map(type => <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>)}
-                      </SelectContent>
+                      <SelectContent>{INCIDENT_TYPES.map(type => <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
                     <Label>Description</Label>
                     <Textarea 
-                      placeholder="Please describe what you saw..."
-                      className="resize-none h-32"
-                      value={formData.description}
-                      onChange={(e) => setFormData({...formData, description: e.target.value})}
+                      placeholder="Describe what you saw..." className="resize-none h-24"
+                      value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})}
                     />
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  {/* EVIDENCE INPUT */}
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2 text-gray-600"><LinkIcon className="w-3 h-3" /> Evidence Link (Optional)</Label>
+                    <Input 
+                      placeholder="Paste Google Drive / Image URL here..." 
+                      className="bg-gray-50"
+                      value={formData.evidenceLink}
+                      onChange={(e) => setFormData({...formData, evidenceLink: e.target.value})}
+                    />
+                  </div>
+
+                  <div className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${formData.isAnonymous ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-50 border-gray-200'}`}>
                     <input 
                       type="checkbox" id="anon"
+                      className="w-5 h-5 rounded border-gray-300 text-red-600 focus:ring-red-500"
                       checked={formData.isAnonymous}
                       onChange={(e) => setFormData({...formData, isAnonymous: e.target.checked})}
-                      className="rounded border-gray-300"
                     />
-                    <Label htmlFor="anon" className="cursor-pointer">Report Anonymously</Label>
+                    <Label htmlFor="anon" className="cursor-pointer flex items-center gap-2 flex-1">
+                      {formData.isAnonymous ? <EyeOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+                      {formData.isAnonymous ? "Identity Hidden" : "Report Anonymously"}
+                    </Label>
                   </div>
 
-                  <Button type="submit" className="w-full bg-destructive hover:bg-destructive/90 text-white" disabled={loading}>
+                  <Button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white" disabled={loading}>
                     {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending...</> : <><Send className="w-4 h-4 mr-2" />Submit Report</>}
                   </Button>
                 </form>
@@ -197,14 +202,10 @@ const StudentDashboard = () => {
           </TabsContent>
 
           <TabsContent value="history" className="animate-fade-in">
-            <div className="space-y-4">
+             {/* ... existing history code ... */}
+             <div className="space-y-4">
               {myIncidents.length === 0 ? (
-                <Card className="glass border-dashed">
-                  <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                    <CheckCircle className="w-12 h-12 mb-4 opacity-20" />
-                    <p>No reports found.</p>
-                  </CardContent>
-                </Card>
+                <Card className="glass border-dashed"><CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground"><CheckCircle className="w-12 h-12 mb-4 opacity-20" /><p>No reports found.</p></CardContent></Card>
               ) : (
                 myIncidents.map((incident) => (
                   <Card key={incident.id} className="glass overflow-hidden hover:shadow-md transition-shadow">
@@ -212,27 +213,13 @@ const StudentDashboard = () => {
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start mb-2">
                         <div>
-                          <span className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
-                            <Clock className="w-3 h-3" />
-                            {new Date(incident.timestamp).toLocaleDateString()}
-                          </span>
-                          <h4 className="font-semibold flex items-center gap-2">
-                            {incident.location}
-                          </h4>
+                          <span className="text-xs text-muted-foreground flex items-center gap-1 mb-1"><Clock className="w-3 h-3" />{new Date(incident.timestamp).toLocaleDateString()}</span>
+                          <h4 className="font-semibold flex items-center gap-2">{incident.location}</h4>
                         </div>
-                        <Badge variant="outline" className={`${getStatusColor(incident.status)} border capitalize font-bold`}>
-                          {incident.status.replace('_', ' ')}
-                        </Badge>
+                        <Badge variant="outline" className={`${getStatusColor(incident.status)} border capitalize`}>{incident.status.replace('_', ' ')}</Badge>
                       </div>
-                      
-                      <div className="bg-muted/50 p-3 rounded-lg text-sm text-muted-foreground mb-3 italic">
-                        "{incident.description}"
-                      </div>
-
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
-                        <MapPin className="w-3 h-3" />
-                        <span className="capitalize">{incident.type.replace('_', ' ')}</span>
-                      </div>
+                      <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 mb-3 border">"{incident.description}"</div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground"><MapPin className="w-3 h-3" /><span className="uppercase font-bold">{incident.type}</span></div>
                     </CardContent>
                   </Card>
                 ))

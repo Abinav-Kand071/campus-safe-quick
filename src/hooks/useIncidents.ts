@@ -1,13 +1,28 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Incident, CampusLocation, IncidentType, IncidentStatus } from '@/types';
+import { Incident, CampusLocation, IncidentType, IncidentStatus, CAMPUS_LOCATIONS } from '@/types';
 import { toast } from 'sonner';
+
+// Helper type to define the Shape of the Database Row (snake_case)
+// This replaces the need for 'any' when handling raw DB data
+type IncidentDBRow = {
+  id: string;
+  location: CampusLocation;
+  type: IncidentType;
+  description: string;
+  video_url: string; // or string | null depending on DB definition
+  timestamp: string;
+  reported_by: string;
+  status: IncidentStatus;
+  priority: number;
+  duplicate_count: number;
+};
 
 export const useIncidents = () => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 1. Fetch Incidents (Real-time ready)
+  // --- 1. FETCH INCIDENTS ---
   const fetchIncidents = async () => {
     try {
       const { data, error } = await supabase
@@ -16,7 +31,25 @@ export const useIncidents = () => {
         .order('timestamp', { ascending: false });
 
       if (error) throw error;
-      setIncidents(data || []);
+
+      // Transform DB Snake_case -> Frontend camelCase
+      // We safely cast 'data' to IncidentDBRow[] if Supabase types aren't fully inferred
+      const rows = (data || []) as IncidentDBRow[];
+      
+      const adaptedData: Incident[] = rows.map(row => ({
+        id: row.id,
+        location: row.location,
+        type: row.type,
+        description: row.description,
+        videoUrl: row.video_url,
+        timestamp: row.timestamp,
+        reportedBy: row.reported_by,
+        status: row.status,
+        priority: row.priority,
+        duplicateCount: row.duplicate_count
+      }));
+
+      setIncidents(adaptedData);
     } catch (err: unknown) {
       console.error('Error fetching incidents:', err);
     } finally {
@@ -24,96 +57,118 @@ export const useIncidents = () => {
     }
   };
 
-  useEffect(() => {
+  useEffect(() => { 
     fetchIncidents();
+    
+    // REALTIME SUBSCRIPTION
+    const channel = supabase
+      .channel('realtime:incidents')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incidents' }, (payload) => {
+          // FIX: Cast to IncidentDBRow instead of 'any'
+          const newRow = payload.new as IncidentDBRow;
+          
+          const newIncident: Incident = {
+             id: newRow.id,
+             location: newRow.location,
+             type: newRow.type,
+             description: newRow.description,
+             reportedBy: newRow.reported_by,
+             status: newRow.status,
+             timestamp: newRow.timestamp,
+             priority: newRow.priority,
+             duplicateCount: newRow.duplicate_count,
+             videoUrl: newRow.video_url
+          };
+          
+          toast.message("⚠️ New Incident Reported!", { description: `${newIncident.type} at ${newIncident.location}` });
+          setIncidents(prev => [newIncident, ...prev]);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // 2. Add Incident (The Database Fix)
-  const addIncident = async (
-    location: CampusLocation,
-    type: IncidentType,
-    description: string,
-    reportedBy: string
-  ) => {
+  // --- 2. ADD INCIDENT ---
+  const addIncident = async (location: CampusLocation, type: IncidentType, description: string, reportedBy: string): Promise<Incident | null> => {
     try {
-      const newIncident = {
-        location,
-        type,
-        description,
-        reportedBy,
-        status: 'reported' as IncidentStatus,
-        timestamp: new Date().toISOString(),
-        priority: 1,
-        duplicateCount: 0
+      const dbPayload = {
+        location, type, description, reported_by: reportedBy,
+        status: 'reported', timestamp: new Date().toISOString(),
+        priority: 1, duplicate_count: 0
       };
 
-      const { data, error } = await supabase
-        .from('incidents')
-        .insert([newIncident])
-        .select();
-
+      const { data, error } = await supabase.from('incidents').insert([dbPayload]).select().single();
       if (error) throw error;
 
       if (data) {
-        setIncidents(prev => [data[0], ...prev]);
-        return data[0];
+        // Cast the returned data to our helper type to map it safely
+        const row = data as IncidentDBRow;
+        
+        const newIncident: Incident = {
+          id: row.id,
+          location: row.location,
+          type: row.type,
+          description: row.description,
+          reportedBy: row.reported_by,
+          status: row.status,
+          timestamp: row.timestamp,
+          priority: row.priority,
+          duplicateCount: row.duplicate_count,
+          videoUrl: row.video_url
+        };
+        return newIncident;
       }
+      return null;
     } catch (err: unknown) {
-      let msg = "Failed to submit report";
-      if (err instanceof Error) msg = err.message;
-      toast.error(msg);
+      toast.error(err instanceof Error ? err.message : "Failed to report");
       return null;
     }
   };
 
-  // 3. Update Status (For Admin/HoD)
+  // --- 3. UPDATE STATUS ---
   const updateIncidentStatus = async (id: string, status: IncidentStatus) => {
     try {
-      const { error } = await supabase
-        .from('incidents')
-        .update({ status })
-        .eq('id', id);
-
+      const { error } = await supabase.from('incidents').update({ status }).eq('id', id);
       if (error) throw error;
-      
       setIncidents(prev => prev.map(inc => inc.id === id ? { ...inc, status } : inc));
-      toast.success(`Status updated to ${status}`);
-    } catch (err: unknown) {
+      toast.success(`Status updated to ${status.replace('_', ' ')}`);
+    } catch (err) {
       toast.error("Failed to update status");
     }
   };
 
-  // 4. Analytics: The Heatmap Logic
+  // --- 4. RELATIVE HEATMAP LOGIC ---
   const getLocationStats = () => {
-    const stats = incidents.reduce((acc, inc) => {
-      acc[inc.location] = (acc[inc.location] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const initialStats: Record<string, number> = {};
+    CAMPUS_LOCATIONS.forEach(loc => initialStats[loc] = 0);
 
-    return Object.entries(stats).map(([location, count]) => {
+    incidents.forEach(inc => {
+      // FIX: Use 'in' operator to safely check property existence
+      if ((inc.location in initialStats) && inc.status !== 'resolved') { 
+         initialStats[inc.location] = (initialStats[inc.location] || 0) + 1;
+      }
+    });
+
+    const maxCount = Math.max(...Object.values(initialStats));
+
+    return Object.entries(initialStats).map(([location, count]) => {
       let severity: 'low' | 'medium' | 'high' | 'critical' = 'low';
-      if (count >= 10) severity = 'critical';
-      else if (count >= 6) severity = 'high';
-      else if (count >= 3) severity = 'medium';
-      
+      if (count === 0) severity = 'low';
+      else if (count === maxCount) severity = 'critical';
+      else if (count >= maxCount * 0.5) severity = 'high';
+      else if (count >= maxCount * 0.25) severity = 'medium';
+
       return { location: location as CampusLocation, count, severity };
     });
   };
 
-  const filterIncidents = (location?: CampusLocation, status?: IncidentStatus) => {
+  const filterIncidents = (location?: CampusLocation | 'all', status?: IncidentStatus | 'all') => {
     return incidents.filter(inc => {
-      const locMatch = !location || inc.location === location;
-      const statusMatch = !status || inc.status === status;
+      const locMatch = !location || location === 'all' || inc.location === location;
+      const statusMatch = !status || status === 'all' || inc.status === status;
       return locMatch && statusMatch;
     });
   };
 
-  return { 
-    incidents, 
-    loading, 
-    addIncident, 
-    updateIncidentStatus, 
-    getLocationStats, 
-    filterIncidents 
-  };
+  return { incidents, loading, addIncident, updateIncidentStatus, getLocationStats, filterIncidents };
 };
