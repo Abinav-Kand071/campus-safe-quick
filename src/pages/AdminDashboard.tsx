@@ -29,16 +29,24 @@ const AdminDashboard = () => {
 
   const [addingUser, setAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({
-    name: '', email: '', phone: '', role: 'hod' as User['role']
+    name: '', 
+    email: '', 
+    phone: '', 
+    role: 'hod' as User['role'],
+    password: '' // Added for Admin-assigned passwords
   });
 
-  useEffect(() => { fetchStudents(); }, []);
+  useEffect(() => { 
+    fetchStudents(); 
+  }, []);
 
   const fetchStudents = async () => {
     try {
       const fetched = await getAllStudents();
       if (Array.isArray(fetched)) setStudents(fetched);
-    } catch (error) { console.error("Error loading students", error); }
+    } catch (error) { 
+      console.error("Error loading students", error); 
+    }
   };
 
   const updateStudentStatus = async (id: string, newStatus: string) => {
@@ -53,26 +61,61 @@ const AdminDashboard = () => {
         toast.success(`Updated to ${newStatus}`);
       }
       fetchStudents(); 
-    } catch (error) { toast.error("Action Failed"); }
+    } catch (err) { 
+      const msg = err instanceof Error ? err.message : "Action Failed";
+      toast.error(msg); 
+    }
   };
 
   const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUser.name || !newUser.email || !newUser.phone) { toast.error("Fill all details"); return; }
+    if (!newUser.name || !newUser.email || !newUser.password) { 
+      toast.error("Name, Email, and Password are required"); 
+      return; 
+    }
+    
     setAddingUser(true);
     try {
-      const { data: existing } = await supabase.from('users').select('*').eq('email', newUser.email).single();
-      if (existing) { toast.error("Email exists!"); setAddingUser(false); return; }
+      // Check if user already exists
+      const { data: existing } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', newUser.email)
+        .maybeSingle();
+
+      if (existing) { 
+        toast.error("Email already exists in the system!"); 
+        setAddingUser(false); 
+        return; 
+      }
+
+      // Insert new staff with manual password and approved status
       const { error } = await supabase.from('users').insert([{
-        name: newUser.name, email: newUser.email, phone: newUser.phone, role: newUser.role, status: 'approved', password: 'PENDING_SIGNUP'
+        name: newUser.name, 
+        email: newUser.email, 
+        phone: newUser.phone, 
+        role: newUser.role, 
+        status: 'approved', 
+        password: newUser.password // Option 1: Saving password directly
       }]);
+
       if (error) throw error;
-      toast.success(`${newUser.role} Authorized!`, { description: "Tell them to Sign Up now." });
-      setNewUser({ name: '', email: '', phone: '', role: 'hod' });
-    } catch (err: unknown) { toast.error("Failed to create staff"); } finally { setAddingUser(false); }
+
+      toast.success(`${newUser.role.toUpperCase()} Authorized!`, { 
+        description: "They can now log in with the password you assigned." 
+      });
+      
+      setNewUser({ name: '', email: '', phone: '', role: 'hod', password: '' });
+    } catch (err) { 
+      const msg = err instanceof Error ? err.message : "Failed to create staff";
+      toast.error(msg); 
+    } finally { 
+      setAddingUser(false); 
+    }
   };
 
   const handleLogout = () => { logout(); navigate('/'); };
+  
   if (!user) return null;
 
   const isSuperAdmin = user.role === 'admin' || user.role === 'principal';
@@ -81,6 +124,7 @@ const AdminDashboard = () => {
   const locationStats = getLocationStats();
   const pendingStudents = students.filter(s => s.status === 'pending');
   const activeStudents = students.filter(s => s.status === 'approved' || s.status === 'banned');
+
   const getHeatmapColor = (severity: string) => {
     switch (severity) {
       case 'critical': return 'bg-red-900 border-red-700 text-white shadow-md scale-105'; 
@@ -110,9 +154,7 @@ const AdminDashboard = () => {
       <main className="container mx-auto px-4 py-6">
         <Tabs defaultValue="feed" className="w-full">
           
-          {/* --- REDESIGNED TABS LIST --- */}
           <TabsList className="flex w-full mb-8 bg-transparent p-0 gap-3">
-            
             <TabsTrigger 
               value="feed" 
               className="flex-1 border bg-white data-[state=active]:bg-blue-50 data-[state=active]:border-blue-500 data-[state=active]:text-blue-700 data-[state=active]:shadow-md h-12 rounded-xl transition-all"
@@ -145,7 +187,6 @@ const AdminDashboard = () => {
             )}
           </TabsList>
 
-          {/* --- LIVE FEED --- */}
           <TabsContent value="feed">
              <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
                 <div className="flex items-center gap-2 bg-white border p-2 rounded-md shadow-sm">
@@ -191,7 +232,6 @@ const AdminDashboard = () => {
              </div>
           </TabsContent>
 
-          {/* --- STUDENTS --- */}
           <TabsContent value="users" className="space-y-6">
              {pendingStudents.length > 0 && (
                <Card className="border-orange-200 bg-orange-50/50">
@@ -240,7 +280,6 @@ const AdminDashboard = () => {
              </Card>
           </TabsContent>
 
-          {/* --- HEATMAP --- */}
           <TabsContent value="analytics">
             <Card className="border-none shadow-none bg-transparent">
               <CardContent className="p-0">
@@ -258,20 +297,61 @@ const AdminDashboard = () => {
             </Card>
           </TabsContent>
           
-          {/* --- AUTHORITY --- */}
           {isSuperAdmin && (
             <TabsContent value="authority">
               <Card className="border-none shadow-sm max-w-xl mx-auto">
-                <CardHeader><CardTitle className="flex items-center gap-2"><UserPlus className="w-5 h-5 text-blue-600" /> Authorize New Staff</CardTitle><CardDescription>Create a profile. <span className="font-bold text-orange-600">They must Sign Up to set password.</span></CardDescription></CardHeader>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <UserPlus className="w-5 h-5 text-blue-600" /> Authorize New Staff
+                  </CardTitle>
+                  <CardDescription>
+                    Create a direct access profile for college authorities.
+                  </CardDescription>
+                </CardHeader>
                 <CardContent>
                   <form onSubmit={handleAddStaff} className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1"><label className="text-xs font-bold text-gray-400">Full Name</label><Input value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Dr. Smith" /></div>
-                      <div className="space-y-1"><label className="text-xs font-bold text-gray-400">Official Email (ID)</label><Input type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} placeholder="hod@college.edu" /></div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-400">Full Name</label>
+                        <Input value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Dr. Smith" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-400">Official Email (ID)</label>
+                        <Input type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} placeholder="hod@college.edu" />
+                      </div>
                     </div>
-                    <div className="space-y-1"><label className="text-xs font-bold text-gray-400">Security Phone</label><Input value={newUser.phone} onChange={e => setNewUser({...newUser, phone: e.target.value})} placeholder="+91..." /></div>
-                    <div className="space-y-1"><label className="text-xs font-bold text-gray-400">Authority Level</label><Select value={newUser.role} onValueChange={(val) => setNewUser({...newUser, role: val as User['role']})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="hod">HOD</SelectItem><SelectItem value="class_in_charge">Class In-Charge</SelectItem><SelectItem value="admin">Admin</SelectItem><SelectItem value="security_head">Security Head</SelectItem></SelectContent></Select></div>
-                    <Button type="submit" className="w-full bg-blue-600 h-11" disabled={addingUser}>{addingUser ? <Loader2 className="animate-spin" /> : <><Key className="w-4 h-4 mr-2" /> Pre-Approve Access</>}</Button>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-400">Assign Login Password</label>
+                      <Input 
+                        type="text" 
+                        value={newUser.password} 
+                        onChange={e => setNewUser({...newUser, password: e.target.value})} 
+                        placeholder="Assign an initial password" 
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-400">Security Phone</label>
+                      <Input value={newUser.phone} onChange={e => setNewUser({...newUser, phone: e.target.value})} placeholder="+91..." />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-400">Authority Level</label>
+                      <Select value={newUser.role} onValueChange={(val) => setNewUser({...newUser, role: val as User['role']})}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="hod">HOD</SelectItem>
+                          <SelectItem value="class_in_charge">Class In-Charge</SelectItem>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="security_head">Security Head</SelectItem>
+                          <SelectItem value="principal">Principal</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button type="submit" className="w-full bg-blue-600 h-11" disabled={addingUser}>
+                      {addingUser ? <Loader2 className="animate-spin" /> : <><Key className="w-4 h-4 mr-2" /> Create & Authorize</>}
+                    </Button>
                   </form>
                 </CardContent>
               </Card>
