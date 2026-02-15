@@ -1,4 +1,4 @@
-# Welcome to your College Security And Analytics project
+# Welcome to your College Security And Analyticss project
 
 ## Project info
 

@@ -3,14 +3,13 @@ import { supabase } from '@/lib/supabase';
 import { Incident, CampusLocation, IncidentType, IncidentStatus, CAMPUS_LOCATIONS } from '@/types';
 import { toast } from 'sonner';
 
-// Helper type to define the Shape of the Database Row (snake_case)
-// This replaces the need for 'any' when handling raw DB data
+// --- HELPER TYPE: Matches your Database Schema (snake_case) ---
 type IncidentDBRow = {
   id: string;
   location: CampusLocation;
   type: IncidentType;
   description: string;
-  video_url: string; // or string | null depending on DB definition
+  video_url: string | null;
   timestamp: string;
   reported_by: string;
   status: IncidentStatus;
@@ -32,16 +31,15 @@ export const useIncidents = () => {
 
       if (error) throw error;
 
-      // Transform DB Snake_case -> Frontend camelCase
-      // We safely cast 'data' to IncidentDBRow[] if Supabase types aren't fully inferred
+      // Safely cast data to our DB Row type
       const rows = (data || []) as IncidentDBRow[];
-      
+
       const adaptedData: Incident[] = rows.map(row => ({
         id: row.id,
         location: row.location,
         type: row.type,
         description: row.description,
-        videoUrl: row.video_url,
+        videoUrl: row.video_url || undefined,
         timestamp: row.timestamp,
         reportedBy: row.reported_by,
         status: row.status,
@@ -60,11 +58,11 @@ export const useIncidents = () => {
   useEffect(() => { 
     fetchIncidents();
     
-    // REALTIME SUBSCRIPTION
+    // --- REALTIME SUBSCRIPTION ---
     const channel = supabase
       .channel('realtime:incidents')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incidents' }, (payload) => {
-          // FIX: Cast to IncidentDBRow instead of 'any'
+          // STRICT TYPING: Cast payload.new to our helper type
           const newRow = payload.new as IncidentDBRow;
           
           const newIncident: Incident = {
@@ -77,7 +75,7 @@ export const useIncidents = () => {
              timestamp: newRow.timestamp,
              priority: newRow.priority,
              duplicateCount: newRow.duplicate_count,
-             videoUrl: newRow.video_url
+             videoUrl: newRow.video_url || undefined
           };
           
           toast.message("⚠️ New Incident Reported!", { description: `${newIncident.type} at ${newIncident.location}` });
@@ -89,21 +87,29 @@ export const useIncidents = () => {
   }, []);
 
   // --- 2. ADD INCIDENT ---
-  const addIncident = async (location: CampusLocation, type: IncidentType, description: string, reportedBy: string): Promise<Incident | null> => {
+  const addIncident = async (
+    location: CampusLocation, 
+    type: IncidentType, 
+    description: string, 
+    reportedBy: string
+  ): Promise<Incident | null> => {
     try {
       const dbPayload = {
-        location, type, description, reported_by: reportedBy,
-        status: 'reported', timestamp: new Date().toISOString(),
-        priority: 1, duplicate_count: 0
+        location, 
+        type, 
+        description, 
+        reported_by: reportedBy,
+        status: 'reported', 
+        timestamp: new Date().toISOString(),
+        priority: 1, 
+        duplicate_count: 0
       };
 
       const { data, error } = await supabase.from('incidents').insert([dbPayload]).select().single();
       if (error) throw error;
 
       if (data) {
-        // Cast the returned data to our helper type to map it safely
         const row = data as IncidentDBRow;
-        
         const newIncident: Incident = {
           id: row.id,
           location: row.location,
@@ -114,7 +120,7 @@ export const useIncidents = () => {
           timestamp: row.timestamp,
           priority: row.priority,
           duplicateCount: row.duplicate_count,
-          videoUrl: row.video_url
+          videoUrl: row.video_url || undefined
         };
         return newIncident;
       }
@@ -143,7 +149,7 @@ export const useIncidents = () => {
     CAMPUS_LOCATIONS.forEach(loc => initialStats[loc] = 0);
 
     incidents.forEach(inc => {
-      // FIX: Use 'in' operator to safely check property existence
+      // Use 'in' operator to avoid prototype issues
       if ((inc.location in initialStats) && inc.status !== 'resolved') { 
          initialStats[inc.location] = (initialStats[inc.location] || 0) + 1;
       }
