@@ -3,31 +3,35 @@ import { useAuth } from '@/hooks/useAuth';
 import { Loader2 } from 'lucide-react';
 
 const ProtectedRoute = ({ allowedRole }: { allowedRole: string }) => {
-  // We get the real user state from Supabase here
   const { user, loading } = useAuth(); 
 
-  // 1. THE FIX: If Supabase is still thinking, SHOW A SPINNER (Don't kick out yet!)
+  // 1. If Supabase is still pulling from local storage, show spinner
   if (loading) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-gray-50">
         <div className="flex flex-col items-center gap-2">
-           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-           <p className="text-sm text-gray-500">Verifying access...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <p className="text-sm text-gray-500">Verifying access...</p>
         </div>
       </div>
     );
   }
 
-  // 2. If loading is done and still no user -> Kick to Home
+  // 2. No user at all -> Kick to Home
   if (!user) {
-    console.log("Protected Route: No user found. Redirecting.");
     return <Navigate to="/" replace />;
   }
 
-  // 3. If user exists but has wrong role -> Kick them out
-  // (e.g. A Student trying to enter Admin Panel)
-  if (allowedRole && user.role !== allowedRole) {
-    console.log(`Protected Route: Role mismatch. User is ${user.role}, required ${allowedRole}`);
+  // 3. THE FIX: Group all authority roles together
+  const isAdminGroup = ['admin', 'security_head', 'principal', 'hod', 'class_in_charge'].includes(user.role);
+
+  if (allowedRole === 'admin' && !isAdminGroup) {
+    // Kick out if route requires admin, but user is NOT in the admin group (e.g. a Student)
+    console.log(`Access Denied: User is ${user.role}, but route requires authority level.`);
+    return <Navigate to="/" replace />;
+  } else if (allowedRole === 'student' && user.role !== 'student') {
+    // Kick out if route requires student, but user is not a student
+    console.log(`Access Denied: User is ${user.role}, but route requires student level.`);
     return <Navigate to="/" replace />;
   }
 

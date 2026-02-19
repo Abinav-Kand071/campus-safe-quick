@@ -3,7 +3,6 @@ import { supabase } from '@/lib/supabase';
 import { Incident, CampusLocation, IncidentType, IncidentStatus, CAMPUS_LOCATIONS } from '@/types';
 import { toast } from 'sonner';
 
-// --- HELPER TYPE: Matches your Database Schema (snake_case) ---
 type IncidentDBRow = {
   id: string;
   location: CampusLocation;
@@ -31,7 +30,6 @@ export const useIncidents = () => {
 
       if (error) throw error;
 
-      // Safely cast data to our DB Row type
       const rows = (data || []) as IncidentDBRow[];
 
       const adaptedData: Incident[] = rows.map(row => ({
@@ -58,28 +56,19 @@ export const useIncidents = () => {
   useEffect(() => { 
     fetchIncidents();
     
-    // --- REALTIME SUBSCRIPTION ---
+    // --- REALTIME SUBSCRIPTION (UPGRADED) ---
+    // Listening to '*' means it triggers on INSERT, UPDATE, and DELETE
     const channel = supabase
-      .channel('realtime:incidents')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incidents' }, (payload) => {
-          // STRICT TYPING: Cast payload.new to our helper type
+      .channel('public:incidents')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, (payload) => {
+        // If it's a brand new report, show a toast notification
+        if (payload.eventType === 'INSERT') {
           const newRow = payload.new as IncidentDBRow;
-          
-          const newIncident: Incident = {
-             id: newRow.id,
-             location: newRow.location,
-             type: newRow.type,
-             description: newRow.description,
-             reportedBy: newRow.reported_by,
-             status: newRow.status,
-             timestamp: newRow.timestamp,
-             priority: newRow.priority,
-             duplicateCount: newRow.duplicate_count,
-             videoUrl: newRow.video_url || undefined
-          };
-          
-          toast.message("⚠️ New Incident Reported!", { description: `${newIncident.type} at ${newIncident.location}` });
-          setIncidents(prev => [newIncident, ...prev]);
+          toast.message("⚠️ New Incident Reported!", { description: `${newRow.type} at ${newRow.location}` });
+        }
+
+        // Refetch the data to guarantee all screens (Admin & Student) are 100% in sync
+        fetchIncidents();
       })
       .subscribe();
 
@@ -110,7 +99,7 @@ export const useIncidents = () => {
 
       if (data) {
         const row = data as IncidentDBRow;
-        const newIncident: Incident = {
+        return {
           id: row.id,
           location: row.location,
           type: row.type,
@@ -122,7 +111,6 @@ export const useIncidents = () => {
           duplicateCount: row.duplicate_count,
           videoUrl: row.video_url || undefined
         };
-        return newIncident;
       }
       return null;
     } catch (err: unknown) {
@@ -134,9 +122,9 @@ export const useIncidents = () => {
   // --- 3. UPDATE STATUS ---
   const updateIncidentStatus = async (id: string, status: IncidentStatus) => {
     try {
+      // We don't need to manually update state here anymore because Realtime will catch the DB update and trigger fetchIncidents()
       const { error } = await supabase.from('incidents').update({ status }).eq('id', id);
       if (error) throw error;
-      setIncidents(prev => prev.map(inc => inc.id === id ? { ...inc, status } : inc));
       toast.success(`Status updated to ${status.replace('_', ' ')}`);
     } catch (err) {
       toast.error("Failed to update status");
@@ -149,7 +137,6 @@ export const useIncidents = () => {
     CAMPUS_LOCATIONS.forEach(loc => initialStats[loc] = 0);
 
     incidents.forEach(inc => {
-      // Use 'in' operator to avoid prototype issues
       if ((inc.location in initialStats) && inc.status !== 'resolved') { 
          initialStats[inc.location] = (initialStats[inc.location] || 0) + 1;
       }

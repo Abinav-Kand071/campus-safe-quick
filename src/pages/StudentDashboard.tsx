@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input'; // Imported Input
+import { Input } from '@/components/ui/input'; 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Shield, LogOut, MapPin, AlertTriangle, Send, History, Clock, CheckCircle, Loader2, EyeOff, Link as LinkIcon } from 'lucide-react';
+import { Shield, LogOut, MapPin, AlertTriangle, Send, History, Clock, CheckCircle, Loader2, EyeOff, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CAMPUS_LOCATIONS, INCIDENT_TYPES, CampusLocation, IncidentType, Incident } from '@/types';
 
@@ -25,7 +25,7 @@ const StudentDashboard = () => {
     type: '' as IncidentType | '',
     location: '' as CampusLocation | '',
     description: '',
-    evidenceLink: '', // Added field for Image/Video URL
+    evidenceLink: '', 
     isAnonymous: false
   });
 
@@ -69,18 +69,10 @@ const StudentDashboard = () => {
         ? 'Anonymous' 
         : (user?.email || user?.id || 'Unknown Student');
       
-      // We pass formData.evidenceLink as the last argument (which maps to video_url in DB)
-      // Note: You might need to update addIncident signature in useIncidents if it doesn't accept this yet.
-      // But based on your previous code, we can append it to description OR pass it if supported.
-      // Ideally, update addIncident to accept a 5th arg 'videoUrl'.
-      // For now, I will append it to description if your addIncident isn't updated, 
-      // BUT strictly speaking, we should update useIncidents.tsx to accept it.
-      // Assuming you updated useIncidents to match the DB:
-      
       const result = await addIncident(
         formData.location as CampusLocation,
         formData.type as IncidentType,
-        formData.description + (formData.evidenceLink ? `\n\n[EVIDENCE]: ${formData.evidenceLink}` : ''), // Append to desc for safety
+        formData.description + (formData.evidenceLink ? `\n\n[EVIDENCE]: ${formData.evidenceLink}` : ''), 
         reporterId
       );
       
@@ -164,12 +156,12 @@ const StudentDashboard = () => {
                   <div className="space-y-2">
                     <Label>Description</Label>
                     <Textarea 
-                      placeholder="Describe what you saw..." className="resize-none h-24"
+                      placeholder="Describe what you saw in detail..." 
+                      className="min-h-[150px] resize-y"
                       value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})}
                     />
                   </div>
 
-                  {/* EVIDENCE INPUT */}
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2 text-gray-600"><LinkIcon className="w-3 h-3" /> Evidence Link (Optional)</Label>
                     <Input 
@@ -202,27 +194,81 @@ const StudentDashboard = () => {
           </TabsContent>
 
           <TabsContent value="history" className="animate-fade-in">
-             {/* ... existing history code ... */}
-             <div className="space-y-4">
+            <div className="space-y-4">
               {myIncidents.length === 0 ? (
                 <Card className="glass border-dashed"><CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground"><CheckCircle className="w-12 h-12 mb-4 opacity-20" /><p>No reports found.</p></CardContent></Card>
               ) : (
-                myIncidents.map((incident) => (
-                  <Card key={incident.id} className="glass overflow-hidden hover:shadow-md transition-shadow">
-                    <div className={`h-1 w-full ${incident.status === 'resolved' ? 'bg-green-500' : incident.status === 'reported' ? 'bg-yellow-500' : 'bg-blue-500'}`} />
-                    <CardContent className="p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <span className="text-xs text-muted-foreground flex items-center gap-1 mb-1"><Clock className="w-3 h-3" />{new Date(incident.timestamp).toLocaleDateString()}</span>
-                          <h4 className="font-semibold flex items-center gap-2">{incident.location}</h4>
+                myIncidents.map((incident) => {
+                  // --- THE MAGIC PARSING LOGIC ---
+                  const hasEvidence = incident.description.includes('[EVIDENCE]:');
+                  const hasRemarks = incident.description.includes('[ADMIN REMARKS]:');
+
+                  let mainText = incident.description;
+                  let evidenceUrl = '';
+                  let adminRemarks = '';
+
+                  if (hasRemarks) {
+                    const parts = mainText.split('[ADMIN REMARKS]:');
+                    mainText = parts[0].trim();
+                    adminRemarks = parts[1].trim();
+                  }
+
+                  if (hasEvidence) {
+                    const parts = mainText.split('[EVIDENCE]:');
+                    mainText = parts[0].trim();
+                    evidenceUrl = parts[1].trim();
+                  }
+
+                  return (
+                    <Card key={incident.id} className="glass overflow-hidden hover:shadow-md transition-shadow">
+                      <div className={`h-1 w-full ${incident.status === 'resolved' ? 'bg-green-500' : incident.status === 'reported' ? 'bg-yellow-500' : 'bg-blue-500'}`} />
+                      <CardContent className="p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <span className="text-xs text-muted-foreground flex items-center gap-1 mb-1"><Clock className="w-3 h-3" />{new Date(incident.timestamp).toLocaleDateString()}</span>
+                            <h4 className="font-semibold flex items-center gap-2">{incident.location}</h4>
+                          </div>
+                          <Badge variant="outline" className={`${getStatusColor(incident.status)} border capitalize`}>{incident.status.replace('_', ' ')}</Badge>
                         </div>
-                        <Badge variant="outline" className={`${getStatusColor(incident.status)} border capitalize`}>{incident.status.replace('_', ' ')}</Badge>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 mb-3 border">"{incident.description}"</div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground"><MapPin className="w-3 h-3" /><span className="uppercase font-bold">{incident.type}</span></div>
-                    </CardContent>
-                  </Card>
-                ))
+
+                        <div className="space-y-3 mb-3">
+                          {/* Original Description */}
+                          <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 border italic break-words">
+                            "{mainText}"
+                          </div>
+
+                          {/* Evidence Button */}
+                          {evidenceUrl && (
+                            <div>
+                              <a
+                                href={evidenceUrl.startsWith('http') || evidenceUrl.startsWith('data:') ? evidenceUrl : `https://${evidenceUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded-md max-w-full"
+                              >
+                                <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                                <span className="truncate">View Attachment</span>
+                              </a>
+                            </div>
+                          )}
+
+                          {/* Admin Resolution Feedback */}
+                          {adminRemarks && (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                <span className="text-xs font-bold text-green-800 uppercase tracking-wider">Resolution Feedback</span>
+                              </div>
+                              <p className="text-sm text-green-900 break-words">{adminRemarks}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground"><MapPin className="w-3 h-3" /><span className="uppercase font-bold">{incident.type}</span></div>
+                      </CardContent>
+                    </Card>
+                  );
+                })
               )}
             </div>
           </TabsContent>

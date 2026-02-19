@@ -9,9 +9,18 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Shield, LogOut, Filter, MapPin, UserPlus, Loader2, Key, 
-  ChevronDown, ChevronUp, Ban, Check, Undo, Activity, Users, BarChart3, Lock
+  ChevronDown, ChevronUp, Ban, Check, Undo, Activity, Users, BarChart3, Lock, Link as LinkIcon, CheckCircle2, MessageSquare
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CampusLocation, IncidentStatus, CAMPUS_LOCATIONS, INCIDENT_STATUSES } from '@/types';
@@ -19,34 +28,30 @@ import { CampusLocation, IncidentStatus, CAMPUS_LOCATIONS, INCIDENT_STATUSES } f
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout, getAllStudents } = useAuth();
-  const { filterIncidents, getLocationStats, updateIncidentStatus } = useIncidents();
+  const { filterIncidents, getLocationStats, incidents, updateIncidentStatus } = useIncidents();
 
-  // --- STATE ---
   const [locationFilter, setLocationFilter] = useState<CampusLocation | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
   const [students, setStudents] = useState<User[]>([]);
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
 
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [resolutionRemarks, setResolutionRemarks] = useState('');
+  const [isSubmittingResolution, setIsSubmittingResolution] = useState(false);
+
   const [addingUser, setAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({
-    name: '', 
-    email: '', 
-    phone: '', 
-    role: 'hod' as User['role'],
-    password: '' // Added for Admin-assigned passwords
+    name: '', email: '', phone: '', role: 'hod' as User['role'], password: '' 
   });
 
-  useEffect(() => { 
-    fetchStudents(); 
-  }, []);
+  useEffect(() => { fetchStudents(); }, []);
 
   const fetchStudents = async () => {
     try {
       const fetched = await getAllStudents();
       if (Array.isArray(fetched)) setStudents(fetched);
-    } catch (error) { 
-      console.error("Error loading students", error); 
-    }
+    } catch (error) { console.error("Error loading students", error); }
   };
 
   const updateStudentStatus = async (id: string, newStatus: string) => {
@@ -62,60 +67,69 @@ const AdminDashboard = () => {
       }
       fetchStudents(); 
     } catch (err) { 
-      const msg = err instanceof Error ? err.message : "Action Failed";
-      toast.error(msg); 
+      toast.error(err instanceof Error ? err.message : "Action Failed"); 
     }
   };
 
   const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUser.name || !newUser.email || !newUser.password) { 
-      toast.error("Name, Email, and Password are required"); 
-      return; 
-    }
-    
+    if (!newUser.name || !newUser.email || !newUser.password) { toast.error("Required fields missing"); return; }
     setAddingUser(true);
     try {
-      // Check if user already exists
-      const { data: existing } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', newUser.email)
-        .maybeSingle();
-
-      if (existing) { 
-        toast.error("Email already exists in the system!"); 
-        setAddingUser(false); 
-        return; 
-      }
-
-      // Insert new staff with manual password and approved status
+      const { data: existing } = await supabase.from('users').select('id').eq('email', newUser.email).maybeSingle();
+      if (existing) { toast.error("Email exists!"); setAddingUser(false); return; }
       const { error } = await supabase.from('users').insert([{
-        name: newUser.name, 
-        email: newUser.email, 
-        phone: newUser.phone, 
-        role: newUser.role, 
-        status: 'approved', 
-        password: newUser.password // Option 1: Saving password directly
+        name: newUser.name, email: newUser.email, phone: newUser.phone, role: newUser.role, status: 'approved', password: newUser.password 
       }]);
-
       if (error) throw error;
-
-      toast.success(`${newUser.role.toUpperCase()} Authorized!`, { 
-        description: "They can now log in with the password you assigned." 
-      });
-      
+      toast.success(`${newUser.role.toUpperCase()} Authorized!`);
       setNewUser({ name: '', email: '', phone: '', role: 'hod', password: '' });
-    } catch (err) { 
-      const msg = err instanceof Error ? err.message : "Failed to create staff";
-      toast.error(msg); 
-    } finally { 
-      setAddingUser(false); 
-    }
+    } catch (err) { toast.error("Failed to create staff"); } 
+    finally { setAddingUser(false); }
   };
 
   const handleLogout = () => { logout(); navigate('/'); };
-  
+
+  const handleStatusChangeRequest = (id: string, newStatus: string) => {
+    if (newStatus === 'resolved') {
+      setSelectedIncidentId(id);
+      setIsModalOpen(true);
+    } else {
+      updateIncidentStatus(id, newStatus as IncidentStatus);
+    }
+  };
+
+  const submitResolution = async () => {
+    if (!selectedIncidentId || !resolutionRemarks.trim()) {
+      toast.error("Please enter resolution remarks.");
+      return;
+    }
+    
+    setIsSubmittingResolution(true);
+    try {
+      const originalIncident = incidents.find(i => i.id === selectedIncidentId);
+      if (!originalIncident) throw new Error("Incident not found");
+
+      const newDescription = `${originalIncident.description}\n\n[ADMIN REMARKS]: ${resolutionRemarks}`;
+
+      const { error } = await supabase
+        .from('incidents')
+        .update({ status: 'resolved', description: newDescription })
+        .eq('id', selectedIncidentId);
+
+      if (error) throw error;
+      
+      toast.success("Incident resolved and feedback sent to student.");
+      setIsModalOpen(false);
+      setResolutionRemarks('');
+      
+    } catch (error) {
+      toast.error("Failed to save resolution");
+    } finally {
+      setIsSubmittingResolution(false);
+    }
+  };
+
   if (!user) return null;
 
   const isSuperAdmin = user.role === 'admin' || user.role === 'principal';
@@ -136,6 +150,35 @@ const AdminDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
+      {/* RESOLUTION MODAL */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <CheckCircle2 className="w-5 h-5" /> Resolve Incident
+            </DialogTitle>
+            <DialogDescription>
+              Please provide details on how this issue was handled.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Textarea
+              placeholder="e.g., Security patrol dispatched, issue fixed."
+              value={resolutionRemarks}
+              onChange={(e) => setResolutionRemarks(e.target.value)}
+              className="h-32 resize-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsModalOpen(false)} disabled={isSubmittingResolution}>Cancel</Button>
+            <Button onClick={submitResolution} className="bg-green-600 hover:bg-green-700 text-white" disabled={isSubmittingResolution}>
+              {isSubmittingResolution ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <MessageSquare className="w-4 h-4 mr-2" />}
+              Confirm & Resolve
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <header className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-200">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -155,38 +198,27 @@ const AdminDashboard = () => {
         <Tabs defaultValue="feed" className="w-full">
           
           <TabsList className="flex w-full mb-8 bg-transparent p-0 gap-3">
-            <TabsTrigger 
-              value="feed" 
-              className="flex-1 border bg-white data-[state=active]:bg-blue-50 data-[state=active]:border-blue-500 data-[state=active]:text-blue-700 data-[state=active]:shadow-md h-12 rounded-xl transition-all"
-            >
+            <TabsTrigger value="feed" className="flex-1 border bg-white data-[state=active]:bg-blue-50 data-[state=active]:border-blue-500 data-[state=active]:text-blue-700 data-[state=active]:shadow-md h-12 rounded-xl transition-all">
               <Activity className="w-4 h-4 mr-2" /> Live Feed
             </TabsTrigger>
             
-            <TabsTrigger 
-              value="users" 
-              className="flex-1 border bg-white data-[state=active]:bg-orange-50 data-[state=active]:border-orange-500 data-[state=active]:text-orange-700 data-[state=active]:shadow-md h-12 rounded-xl transition-all"
-            >
+            <TabsTrigger value="users" className="flex-1 border bg-white data-[state=active]:bg-orange-50 data-[state=active]:border-orange-500 data-[state=active]:text-orange-700 data-[state=active]:shadow-md h-12 rounded-xl transition-all">
               <Users className="w-4 h-4 mr-2" /> Students 
               {pendingStudents.length > 0 && <span className="ml-2 bg-red-500 text-white text-[10px] px-2 rounded-full shadow-sm">{pendingStudents.length}</span>}
             </TabsTrigger>
             
-            <TabsTrigger 
-              value="analytics" 
-              className="flex-1 border bg-white data-[state=active]:bg-purple-50 data-[state=active]:border-purple-500 data-[state=active]:text-purple-700 data-[state=active]:shadow-md h-12 rounded-xl transition-all"
-            >
+            <TabsTrigger value="analytics" className="flex-1 border bg-white data-[state=active]:bg-purple-50 data-[state=active]:border-purple-500 data-[state=active]:text-purple-700 data-[state=active]:shadow-md h-12 rounded-xl transition-all">
               <BarChart3 className="w-4 h-4 mr-2" /> Heatmap
             </TabsTrigger>
 
             {isSuperAdmin && (
-              <TabsTrigger 
-                value="authority" 
-                className="flex-1 border bg-white data-[state=active]:bg-gray-900 data-[state=active]:border-black data-[state=active]:text-white data-[state=active]:shadow-md h-12 rounded-xl transition-all"
-              >
+              <TabsTrigger value="authority" className="flex-1 border bg-white data-[state=active]:bg-gray-900 data-[state=active]:border-black data-[state=active]:text-white data-[state=active]:shadow-md h-12 rounded-xl transition-all">
                 <Lock className="w-4 h-4 mr-2" /> Authority
               </TabsTrigger>
             )}
           </TabsList>
 
+          {/* LIVE FEED TAB */}
           <TabsContent value="feed">
              <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
                 <div className="flex items-center gap-2 bg-white border p-2 rounded-md shadow-sm">
@@ -212,17 +244,63 @@ const AdminDashboard = () => {
                                     <div className="flex items-center gap-2">
                                        <h3 className="font-bold text-gray-800">{inc.location}</h3>
                                        <Badge variant="outline" className="text-[10px] uppercase font-bold">{inc.type}</Badge>
+                                       {(Date.now() - new Date(inc.timestamp).getTime() < 300000) && (
+                                         <span className="relative flex h-3 w-3 ml-2">
+                                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                           <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                                         </span>
+                                       )}
                                     </div>
-                                    <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border italic">"{inc.description}"</p>
+                                    
+                                    {(() => {
+                                      const hasEvidence = inc.description.includes('[EVIDENCE]:');
+                                      const hasRemarks = inc.description.includes('[ADMIN REMARKS]:');
+                                      let mainText = inc.description;
+                                      let evidenceUrl = '';
+                                      let adminRemarks = '';
+
+                                      if (hasRemarks) {
+                                        const parts = mainText.split('[ADMIN REMARKS]:');
+                                        mainText = parts[0].trim();
+                                        adminRemarks = parts[1].trim();
+                                      }
+                                      if (hasEvidence) {
+                                        const parts = mainText.split('[EVIDENCE]:');
+                                        mainText = parts[0].trim();
+                                        evidenceUrl = parts[1].trim();
+                                      }
+
+                                      return (
+                                        <div className="space-y-2">
+                                          <div className="bg-gray-50 p-3 rounded-lg border">
+                                            <p className="text-sm text-gray-600 italic break-words whitespace-pre-wrap">"{mainText}"</p>
+                                            {evidenceUrl && (
+                                              <div className="mt-2 pt-2 border-t border-gray-200">
+                                                <a href={evidenceUrl.startsWith('http') || evidenceUrl.startsWith('data:') ? evidenceUrl : `https://${evidenceUrl}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded-md max-w-full">
+                                                  <LinkIcon className="w-3 h-3 flex-shrink-0" />
+                                                  <span className="truncate">View Evidence</span>
+                                                </a>
+                                              </div>
+                                            )}
+                                          </div>
+                                          {adminRemarks && (
+                                            <div className="bg-green-50 p-2 rounded-lg border border-green-200 flex items-start gap-2">
+                                              <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                                              <p className="text-xs text-green-800 font-medium break-words">Admin Resolution: {adminRemarks}</p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                     <p className="text-[10px] text-gray-400">Reporter: {inc.reportedBy} • {new Date(inc.timestamp).toLocaleTimeString()}</p>
                                 </div>
                                 <div className="flex flex-col items-end gap-3 ml-4 min-w-[140px]">
                                    {canModifyStatus && inc.status !== 'resolved' ? (
-                                      <Select defaultValue={inc.status} onValueChange={(val) => updateIncidentStatus(inc.id, val as IncidentStatus)}>
+                                      <Select defaultValue={inc.status} onValueChange={(val) => handleStatusChangeRequest(inc.id, val)}>
                                         <SelectTrigger className="h-8 text-xs bg-gray-50 border-gray-200"><SelectValue /></SelectTrigger>
                                         <SelectContent>{INCIDENT_STATUSES.map(s => (<SelectItem key={s.value} value={s.value} className={s.value === 'resolved' ? 'text-green-600 font-bold' : ''}>{s.label}</SelectItem>))}</SelectContent>
                                       </Select>
-                                   ) : (<Badge variant="outline">{inc.status.replace('_', ' ')}</Badge>)}
+                                   ) : (<Badge variant="outline" className={inc.status === 'resolved' ? 'bg-green-100 text-green-800 border-green-200' : ''}>{inc.status.replace('_', ' ')}</Badge>)}
                                 </div>
                             </div>
                         </CardContent>
@@ -232,7 +310,8 @@ const AdminDashboard = () => {
              </div>
           </TabsContent>
 
-          <TabsContent value="users" className="space-y-6">
+          {/* STUDENTS TAB */}
+          <TabsContent value="users" className="space-y-6 animate-in fade-in duration-300">
              {pendingStudents.length > 0 && (
                <Card className="border-orange-200 bg-orange-50/50">
                  <CardHeader className="pb-2"><CardTitle className="text-sm font-bold text-orange-800 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Pending ({pendingStudents.length})</CardTitle></CardHeader>
@@ -240,46 +319,57 @@ const AdminDashboard = () => {
                    {pendingStudents.map(s => (
                      <div key={s.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-orange-100 shadow-sm">
                        <div><p className="font-bold text-gray-800 text-sm">{s.name}</p><p className="text-[10px] text-gray-500 font-mono">{s.email}</p></div>
-                       <div className="flex gap-2"><Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => updateStudentStatus(s.id, 'deleted')}>Decline</Button><Button size="sm" className="bg-green-600 h-7 text-xs hover:bg-green-700" onClick={() => updateStudentStatus(s.id, 'approved')}>Approve</Button></div>
+                       <div className="flex gap-2">
+                         <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => updateStudentStatus(s.id, 'deleted')}>Decline</Button>
+                         <Button size="sm" className="bg-green-600 h-7 text-xs hover:bg-green-700" onClick={() => updateStudentStatus(s.id, 'approved')}>Approve</Button>
+                       </div>
                      </div>
                    ))}
                  </CardContent>
                </Card>
              )}
+             
              <Card className="border-none shadow-sm">
                <CardHeader className="pb-2"><CardTitle className="text-sm font-bold text-gray-600">Registered Students</CardTitle></CardHeader>
                <CardContent className="space-y-2">
-                 {activeStudents.map(s => (
-                   <div key={s.id} className={`border rounded-xl transition-all ${s.status === 'banned' ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
-                     <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 rounded-xl" onClick={() => setExpandedStudentId(expandedStudentId === s.id ? null : s.id)}>
-                       <div className="flex items-center gap-3">
-                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${s.status === 'banned' ? 'bg-red-200 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{s.name.charAt(0)}</div>
-                         <div><p className={`font-bold text-sm ${s.status === 'banned' ? 'text-red-700 line-through' : 'text-gray-800'}`}>{s.name}</p><p className="text-[10px] text-gray-400">{s.email}</p></div>
-                       </div>
-                       <div className="flex items-center gap-2">{s.status === 'banned' && <Badge variant="destructive" className="text-[10px]">BANNED</Badge>}{expandedStudentId === s.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}</div>
-                     </div>
-                     {expandedStudentId === s.id && (
-                       <div className="p-3 border-t bg-gray-50/50 rounded-b-xl animate-in slide-in-from-top-2">
-                         <div className="grid grid-cols-2 gap-4 mb-4 text-xs"><div><span className="text-gray-400 block mb-1">College ID</span><span className="font-mono font-medium">{s.email}</span></div><div><span className="text-gray-400 block mb-1">Biometric Hash</span><span className="font-mono font-medium truncate block w-full">{s.phone || 'N/A'}</span></div></div>
-                         <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                           {s.status === 'approved' ? (
-                             <>
-                               <Button size="sm" variant="outline" className="flex-1 h-8 text-xs border-orange-200 text-orange-700 hover:bg-orange-50" onClick={() => updateStudentStatus(s.id, 'pending')}><Undo className="w-3 h-3 mr-2" /> Unapprove</Button>
-                               <Button size="sm" variant="destructive" className="flex-1 h-8 text-xs bg-gray-900 hover:bg-black" onClick={() => updateStudentStatus(s.id, 'banned')}><Ban className="w-3 h-3 mr-2" /> Ban</Button>
-                             </>
-                           ) : (
-                             <Button size="sm" variant="outline" className="flex-1 h-8 text-xs border-green-200 text-green-700 hover:bg-green-50" onClick={() => updateStudentStatus(s.id, 'approved')}><Check className="w-3 h-3 mr-2" /> Lift Ban</Button>
-                           )}
+                 {activeStudents.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 bg-gray-50 rounded-lg border border-dashed">
+                      <Users className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                      <p className="text-sm">No students registered yet.</p>
+                    </div>
+                 ) : (
+                   activeStudents.map(s => (
+                     <div key={s.id} className={`border rounded-xl transition-all ${s.status === 'banned' ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
+                       <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 rounded-xl" onClick={() => setExpandedStudentId(expandedStudentId === s.id ? null : s.id)}>
+                         <div className="flex items-center gap-3">
+                           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${s.status === 'banned' ? 'bg-red-200 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{s.name.charAt(0)}</div>
+                           <div><p className={`font-bold text-sm ${s.status === 'banned' ? 'text-red-700 line-through' : 'text-gray-800'}`}>{s.name}</p><p className="text-[10px] text-gray-400">{s.email}</p></div>
                          </div>
+                         <div className="flex items-center gap-2">{s.status === 'banned' && <Badge variant="destructive" className="text-[10px]">BANNED</Badge>}{expandedStudentId === s.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}</div>
                        </div>
-                     )}
-                   </div>
-                 ))}
-                 {activeStudents.length === 0 && <p className="text-gray-400 text-center py-4 text-sm">No students registered.</p>}
+                       {expandedStudentId === s.id && (
+                         <div className="p-3 border-t bg-gray-50/50 rounded-b-xl animate-in slide-in-from-top-2">
+                           <div className="grid grid-cols-2 gap-4 mb-4 text-xs"><div><span className="text-gray-400 block mb-1">College ID</span><span className="font-mono font-medium">{s.email}</span></div><div><span className="text-gray-400 block mb-1">Security Phone</span><span className="font-mono font-medium truncate block w-full">{s.phone || 'N/A'}</span></div></div>
+                           <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+                             {s.status === 'approved' ? (
+                               <>
+                                 <Button size="sm" variant="outline" className="flex-1 h-8 text-xs border-orange-200 text-orange-700 hover:bg-orange-50" onClick={() => updateStudentStatus(s.id, 'pending')}><Undo className="w-3 h-3 mr-2" /> Unapprove</Button>
+                                 <Button size="sm" variant="destructive" className="flex-1 h-8 text-xs bg-gray-900 hover:bg-black" onClick={() => updateStudentStatus(s.id, 'banned')}><Ban className="w-3 h-3 mr-2" /> Ban</Button>
+                               </>
+                             ) : (
+                               <Button size="sm" variant="outline" className="flex-1 h-8 text-xs border-green-200 text-green-700 hover:bg-green-50" onClick={() => updateStudentStatus(s.id, 'approved')}><Check className="w-3 h-3 mr-2" /> Lift Ban</Button>
+                             )}
+                           </div>
+                         </div>
+                       )}
+                     </div>
+                   ))
+                 )}
                </CardContent>
              </Card>
           </TabsContent>
 
+          {/* ANALYTICS TAB */}
           <TabsContent value="analytics">
             <Card className="border-none shadow-none bg-transparent">
               <CardContent className="p-0">
@@ -297,16 +387,15 @@ const AdminDashboard = () => {
             </Card>
           </TabsContent>
           
+          {/* AUTHORITY TAB */}
           {isSuperAdmin && (
-            <TabsContent value="authority">
+            <TabsContent value="authority" className="animate-in fade-in duration-300">
               <Card className="border-none shadow-sm max-w-xl mx-auto">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <UserPlus className="w-5 h-5 text-blue-600" /> Authorize New Staff
                   </CardTitle>
-                  <CardDescription>
-                    Create a direct access profile for college authorities.
-                  </CardDescription>
+                  <CardDescription>Create a direct access profile for college authorities.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleAddStaff} className="space-y-4">
@@ -320,22 +409,14 @@ const AdminDashboard = () => {
                         <Input type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} placeholder="hod@college.edu" />
                       </div>
                     </div>
-
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-gray-400">Assign Login Password</label>
-                      <Input 
-                        type="text" 
-                        value={newUser.password} 
-                        onChange={e => setNewUser({...newUser, password: e.target.value})} 
-                        placeholder="Assign an initial password" 
-                      />
+                      <Input type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} placeholder="Assign an initial password" />
                     </div>
-
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-gray-400">Security Phone</label>
                       <Input value={newUser.phone} onChange={e => setNewUser({...newUser, phone: e.target.value})} placeholder="+91..." />
                     </div>
-
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-gray-400">Authority Level</label>
                       <Select value={newUser.role} onValueChange={(val) => setNewUser({...newUser, role: val as User['role']})}>
