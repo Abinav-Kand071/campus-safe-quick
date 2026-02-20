@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { 
   Shield, LogOut, Filter, MapPin, UserPlus, Loader2, Key, 
-  ChevronDown, ChevronUp, Ban, Check, Undo, Activity, Users, BarChart3, Lock, Link as LinkIcon, CheckCircle2, MessageSquare
+  ChevronDown, ChevronUp, Ban, Check, Undo, Activity, Users, BarChart3, Lock, Link as LinkIcon, CheckCircle2, MessageSquare, X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CampusLocation, IncidentStatus, CAMPUS_LOCATIONS, INCIDENT_STATUSES } from '@/types';
@@ -34,6 +34,9 @@ const AdminDashboard = () => {
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
   const [students, setStudents] = useState<User[]>([]);
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
+
+  // --- NEW: State for the Heatmap Dropdown List ---
+  const [expandedLocation, setExpandedLocation] = useState<CampusLocation | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
@@ -370,12 +373,20 @@ const AdminDashboard = () => {
           </TabsContent>
 
           {/* ANALYTICS TAB */}
-          <TabsContent value="analytics">
-            <Card className="border-none shadow-none bg-transparent">
-              <CardContent className="p-0">
+          <TabsContent value="analytics" className="space-y-6">
+            <Card className="border-none shadow-sm bg-white">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-bold text-gray-600">Incident Heatmap</CardTitle>
+                <CardDescription>Click a location to view specific reports.</CardDescription>
+              </CardHeader>
+              <CardContent>
                 <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
                   {locationStats.map(stat => (
-                    <div key={stat.location} className={`aspect-square p-2 rounded-xl border flex flex-col items-center justify-center text-center transition-all duration-300 ${getHeatmapColor(stat.severity)}`}>
+                    <div 
+                      key={stat.location} 
+                      onClick={() => setExpandedLocation(expandedLocation === stat.location ? null : stat.location as CampusLocation)}
+                      className={`cursor-pointer hover:scale-105 hover:opacity-90 aspect-square p-2 rounded-xl border flex flex-col items-center justify-center text-center transition-all duration-300 ${expandedLocation === stat.location ? 'ring-2 ring-blue-500 shadow-md ' : ''} ${getHeatmapColor(stat.severity)}`}
+                    >
                       <MapPin className={`w-5 h-5 mb-1 ${stat.severity === 'low' ? 'text-gray-300' : ''}`} />
                       <h3 className="font-bold text-[10px] uppercase tracking-wider mb-0 leading-tight">{stat.location}</h3>
                       <p className="text-2xl font-black leading-none my-1">{stat.count}</p>
@@ -385,6 +396,44 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+
+            {/* --- NEW: THE DROPDOWN LIST FOR THE SELECTED LOCATION --- */}
+            {expandedLocation && (
+              <Card className="border-blue-200 bg-blue-50/30 animate-in slide-in-from-top-4 shadow-sm">
+                <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                  <CardTitle className="text-sm font-bold text-blue-800 flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-blue-600" /> Reports for {expandedLocation}
+                  </CardTitle>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-blue-100" onClick={() => setExpandedLocation(null)}>
+                    <X className="w-4 h-4 text-blue-700" />
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                  {incidents.filter(inc => inc.location === expandedLocation).length === 0 ? (
+                     <p className="text-sm text-gray-500 italic text-center py-4">No active reports for this location.</p>
+                  ) : (
+                    incidents.filter(inc => inc.location === expandedLocation).map(inc => (
+                      <div key={inc.id} className="bg-white p-3 rounded-lg border border-blue-100 shadow-sm relative overflow-hidden">
+                        <div className={`absolute left-0 top-0 bottom-0 w-1 ${inc.status === 'resolved' ? 'bg-green-500' : 'bg-blue-500'}`} />
+                        <div className="pl-2">
+                          <div className="flex justify-between items-start mb-2">
+                            <Badge variant="outline" className="text-[10px] uppercase font-bold bg-gray-50">{inc.type}</Badge>
+                            <Badge variant="secondary" className={`text-[10px] ${inc.status === 'resolved' ? 'bg-green-100 text-green-800' : ''}`}>{inc.status.replace('_', ' ')}</Badge>
+                          </div>
+                          {/* Clean up the description to hide evidence/remarks strings in this quick-view */}
+                          <p className="text-sm text-gray-700 italic">
+                            "{inc.description.split('[EVIDENCE]:')[0].split('[ADMIN REMARKS]:')[0].trim()}"
+                          </p>
+                          <p className="text-[10px] text-gray-400 mt-2 font-medium">
+                            {new Date(inc.timestamp).toLocaleDateString()} • {new Date(inc.timestamp).toLocaleTimeString()}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
           
           {/* AUTHORITY TAB */}
