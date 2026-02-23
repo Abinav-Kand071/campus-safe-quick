@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, User } from '@/hooks/useAuth';
 import { useIncidents } from '@/hooks/useIncidents';
@@ -30,32 +30,35 @@ const AdminDashboard = () => {
   const { user, logout, getAllStudents } = useAuth();
   const { filterIncidents, getLocationStats, incidents, updateIncidentStatus } = useIncidents();
 
+  // --- STRICTLY TYPED STATES ---
+  const [activeTab, setActiveTab] = useState<string>('feed');
+  const [studentFilter, setStudentFilter] = useState<string | null>(null);
+
   const [locationFilter, setLocationFilter] = useState<CampusLocation | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
   const [students, setStudents] = useState<User[]>([]);
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
 
-  // --- NEW: State for the Heatmap Dropdown List ---
-  const [expandedLocation, setExpandedLocation] = useState<CampusLocation | null>(null);
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
-  const [resolutionRemarks, setResolutionRemarks] = useState('');
-  const [isSubmittingResolution, setIsSubmittingResolution] = useState(false);
+  const [resolutionRemarks, setResolutionRemarks] = useState<string>('');
+  const [isSubmittingResolution, setIsSubmittingResolution] = useState<boolean>(false);
 
-  const [addingUser, setAddingUser] = useState(false);
+  const [addingUser, setAddingUser] = useState<boolean>(false);
   const [newUser, setNewUser] = useState({
     name: '', email: '', phone: '', role: 'hod' as User['role'], password: '' 
   });
 
-  useEffect(() => { fetchStudents(); }, []);
-
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     try {
       const fetched = await getAllStudents();
       if (Array.isArray(fetched)) setStudents(fetched);
     } catch (error) { console.error("Error loading students", error); }
-  };
+  }, [getAllStudents]);
+
+  useEffect(() => { 
+    fetchStudents(); 
+  }, [fetchStudents]);
 
   const updateStudentStatus = async (id: string, newStatus: string) => {
     try {
@@ -133,11 +136,42 @@ const AdminDashboard = () => {
     }
   };
 
+  // Base location/status filter
+  const filteredIncidents = filterIncidents(locationFilter === 'all' ? undefined : locationFilter, statusFilter === 'all' ? undefined : statusFilter);
+  
+  // Secondary local filter for specific student history
+  const finalIncidents = studentFilter 
+    ? filteredIncidents.filter(inc => inc.reportedBy === studentFilter) 
+    : filteredIncidents;
+
+  // --- NEW: CSV EXPORT FUNCTION ---
+  const exportToCSV = () => {
+    const dataToExport = finalIncidents.length > 0 ? finalIncidents : incidents;
+    const headers = ['Location', 'Type', 'Status', 'Reported By', 'Date', 'Description'];
+    
+    const csvRows = dataToExport.map(inc => [
+      `"${inc.location}"`,
+      `"${inc.type}"`,
+      `"${inc.status}"`,
+      `"${inc.reportedBy}"`,
+      `"${new Date(inc.timestamp).toLocaleString()}"`,
+      `"${inc.description.replace(/"/g, '""')}"` 
+    ]);
+
+    const csvContent = [headers.join(','), ...csvRows.map(e => e.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `campus_incidents_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    toast.success("Spreadsheet downloaded successfully!");
+  };
+
   if (!user) return null;
 
   const isSuperAdmin = user.role === 'admin' || user.role === 'principal';
   const canModifyStatus = user.role !== 'class_in_charge';
-  const filteredIncidents = filterIncidents(locationFilter === 'all' ? undefined : locationFilter, statusFilter === 'all' ? undefined : statusFilter);
+  
   const locationStats = getLocationStats();
   const pendingStudents = students.filter(s => s.status === 'pending');
   const activeStudents = students.filter(s => s.status === 'approved' || s.status === 'banned');
@@ -153,7 +187,6 @@ const AdminDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
-      {/* RESOLUTION MODAL */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -198,8 +231,7 @@ const AdminDashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-6">
-        <Tabs defaultValue="feed" className="w-full">
-          
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="flex w-full mb-8 bg-transparent p-0 gap-3">
             <TabsTrigger value="feed" className="flex-1 border bg-white data-[state=active]:bg-blue-50 data-[state=active]:border-blue-500 data-[state=active]:text-blue-700 data-[state=active]:shadow-md h-12 rounded-xl transition-all">
               <Activity className="w-4 h-4 mr-2" /> Live Feed
@@ -221,9 +253,20 @@ const AdminDashboard = () => {
             )}
           </TabsList>
 
-          {/* LIVE FEED TAB */}
           <TabsContent value="feed">
-             <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+             {studentFilter && (
+                <div className="flex items-center justify-between bg-blue-50 border border-blue-200 p-3 rounded-lg mb-4">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm text-blue-800 font-medium">History for: <strong>{studentFilter}</strong></span>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setStudentFilter(null)} className="h-7 text-xs text-blue-600 hover:bg-blue-100 hover:text-blue-800">
+                    <X className="w-3 h-3 mr-1" /> Clear Filter
+                  </Button>
+                </div>
+             )}
+
+             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 overflow-x-auto pb-2">
                 <div className="flex items-center gap-2 bg-white border p-2 rounded-md shadow-sm">
                    <Filter className="w-4 h-4 text-gray-400" />
                    <select className="text-sm bg-transparent border-none outline-none focus:ring-0 cursor-pointer" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value as CampusLocation | 'all')}>
@@ -236,9 +279,15 @@ const AdminDashboard = () => {
                       {INCIDENT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                    </select>
                 </div>
+                
+                {/* --- THE NEW CSV BUTTON --- */}
+                <Button variant="outline" size="sm" onClick={exportToCSV} className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100 flex-shrink-0">
+                  Download CSV
+                </Button>
              </div>
+             
              <div className="space-y-4">
-                {filteredIncidents.map(inc => (
+                {finalIncidents.map(inc => (
                     <Card key={inc.id} className="bg-white border-none shadow-sm overflow-hidden hover:shadow-md transition-all">
                         <div className={`h-1 w-full ${inc.status === 'resolved' ? 'bg-green-500' : 'bg-blue-600'}`} />
                         <CardContent className="p-4">
@@ -309,12 +358,11 @@ const AdminDashboard = () => {
                         </CardContent>
                     </Card>
                 ))}
-                {filteredIncidents.length === 0 && <p className="text-center text-gray-400 py-10">No incidents found.</p>}
+                {finalIncidents.length === 0 && <p className="text-center text-gray-400 py-10">No incidents found.</p>}
              </div>
           </TabsContent>
 
-          {/* STUDENTS TAB */}
-          <TabsContent value="users" className="space-y-6 animate-in fade-in duration-300">
+          <TabsContent value="users" className="space-y-6">
              {pendingStudents.length > 0 && (
                <Card className="border-orange-200 bg-orange-50/50">
                  <CardHeader className="pb-2"><CardTitle className="text-sm font-bold text-orange-800 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Pending ({pendingStudents.length})</CardTitle></CardHeader>
@@ -352,7 +400,25 @@ const AdminDashboard = () => {
                        </div>
                        {expandedStudentId === s.id && (
                          <div className="p-3 border-t bg-gray-50/50 rounded-b-xl animate-in slide-in-from-top-2">
-                           <div className="grid grid-cols-2 gap-4 mb-4 text-xs"><div><span className="text-gray-400 block mb-1">College ID</span><span className="font-mono font-medium">{s.email}</span></div><div><span className="text-gray-400 block mb-1">Security Phone</span><span className="font-mono font-medium truncate block w-full">{s.phone || 'N/A'}</span></div></div>
+                           <div className="grid grid-cols-2 gap-4 mb-3 text-xs">
+                             <div><span className="text-gray-400 block mb-1">College ID</span><span className="font-mono font-medium">{s.email}</span></div>
+                             <div><span className="text-gray-400 block mb-1">Security Phone</span><span className="font-mono font-medium truncate block w-full">{s.phone || 'N/A'}</span></div>
+                           </div>
+                           
+                           <Button 
+                             size="sm" 
+                             variant="outline" 
+                             className="w-full mb-3 h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 bg-white"
+                             onClick={() => {
+                               setStudentFilter(s.email);
+                               setLocationFilter('all');
+                               setStatusFilter('all');
+                               setActiveTab('feed');
+                             }}
+                           >
+                             <Activity className="w-3 h-3 mr-2" /> View Full Report History
+                           </Button>
+
                            <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
                              {s.status === 'approved' ? (
                                <>
@@ -372,20 +438,24 @@ const AdminDashboard = () => {
              </Card>
           </TabsContent>
 
-          {/* ANALYTICS TAB */}
           <TabsContent value="analytics" className="space-y-6">
             <Card className="border-none shadow-sm bg-white">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-bold text-gray-600">Incident Heatmap</CardTitle>
-                <CardDescription>Click a location to view specific reports.</CardDescription>
+                <CardDescription>Click a location to filter the live feed.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
                   {locationStats.map(stat => (
                     <div 
                       key={stat.location} 
-                      onClick={() => setExpandedLocation(expandedLocation === stat.location ? null : stat.location as CampusLocation)}
-                      className={`cursor-pointer hover:scale-105 hover:opacity-90 aspect-square p-2 rounded-xl border flex flex-col items-center justify-center text-center transition-all duration-300 ${expandedLocation === stat.location ? 'ring-2 ring-blue-500 shadow-md ' : ''} ${getHeatmapColor(stat.severity)}`}
+                      onClick={() => {
+                        setLocationFilter(stat.location as CampusLocation);
+                        setStatusFilter('all');
+                        setStudentFilter(null);
+                        setActiveTab('feed');
+                      }}
+                      className={`cursor-pointer hover:scale-105 hover:opacity-90 aspect-square p-2 rounded-xl border flex flex-col items-center justify-center text-center transition-all duration-300 ${getHeatmapColor(stat.severity)}`}
                     >
                       <MapPin className={`w-5 h-5 mb-1 ${stat.severity === 'low' ? 'text-gray-300' : ''}`} />
                       <h3 className="font-bold text-[10px] uppercase tracking-wider mb-0 leading-tight">{stat.location}</h3>
@@ -396,47 +466,8 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
-
-            {/* --- NEW: THE DROPDOWN LIST FOR THE SELECTED LOCATION --- */}
-            {expandedLocation && (
-              <Card className="border-blue-200 bg-blue-50/30 animate-in slide-in-from-top-4 shadow-sm">
-                <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                  <CardTitle className="text-sm font-bold text-blue-800 flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-blue-600" /> Reports for {expandedLocation}
-                  </CardTitle>
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-blue-100" onClick={() => setExpandedLocation(null)}>
-                    <X className="w-4 h-4 text-blue-700" />
-                  </Button>
-                </CardHeader>
-                <CardContent className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {incidents.filter(inc => inc.location === expandedLocation).length === 0 ? (
-                     <p className="text-sm text-gray-500 italic text-center py-4">No active reports for this location.</p>
-                  ) : (
-                    incidents.filter(inc => inc.location === expandedLocation).map(inc => (
-                      <div key={inc.id} className="bg-white p-3 rounded-lg border border-blue-100 shadow-sm relative overflow-hidden">
-                        <div className={`absolute left-0 top-0 bottom-0 w-1 ${inc.status === 'resolved' ? 'bg-green-500' : 'bg-blue-500'}`} />
-                        <div className="pl-2">
-                          <div className="flex justify-between items-start mb-2">
-                            <Badge variant="outline" className="text-[10px] uppercase font-bold bg-gray-50">{inc.type}</Badge>
-                            <Badge variant="secondary" className={`text-[10px] ${inc.status === 'resolved' ? 'bg-green-100 text-green-800' : ''}`}>{inc.status.replace('_', ' ')}</Badge>
-                          </div>
-                          {/* Clean up the description to hide evidence/remarks strings in this quick-view */}
-                          <p className="text-sm text-gray-700 italic">
-                            "{inc.description.split('[EVIDENCE]:')[0].split('[ADMIN REMARKS]:')[0].trim()}"
-                          </p>
-                          <p className="text-[10px] text-gray-400 mt-2 font-medium">
-                            {new Date(inc.timestamp).toLocaleDateString()} • {new Date(inc.timestamp).toLocaleTimeString()}
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-            )}
           </TabsContent>
           
-          {/* AUTHORITY TAB */}
           {isSuperAdmin && (
             <TabsContent value="authority" className="animate-in fade-in duration-300">
               <Card className="border-none shadow-sm max-w-xl mx-auto">
