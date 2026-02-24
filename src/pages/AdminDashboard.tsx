@@ -20,17 +20,32 @@ import {
 } from "@/components/ui/dialog";
 import { 
   Shield, LogOut, Filter, MapPin, UserPlus, Loader2, Key, 
-  ChevronDown, ChevronUp, Ban, Check, Undo, Activity, Users, BarChart3, Lock, Link as LinkIcon, CheckCircle2, MessageSquare, X
+  ChevronDown, ChevronUp, Ban, Check, Undo, Activity, Users, BarChart3, Lock, Link as LinkIcon, CheckCircle2, MessageSquare, X, Eye, Phone
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CampusLocation, IncidentStatus, CAMPUS_LOCATIONS, INCIDENT_STATUSES } from '@/types';
+
+// Helper function to turn URLs in text into clickable hyperlinks
+const renderTextWithLinks = (text: string) => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) => {
+    if (part.match(urlRegex)) {
+      return (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 font-semibold underline">
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
+};
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout, getAllStudents } = useAuth();
   const { filterIncidents, getLocationStats, incidents, updateIncidentStatus } = useIncidents();
 
-  // --- STRICTLY TYPED STATES ---
   const [activeTab, setActiveTab] = useState<string>('feed');
   const [studentFilter, setStudentFilter] = useState<string | null>(null);
 
@@ -38,6 +53,8 @@ const AdminDashboard = () => {
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
   const [students, setStudents] = useState<User[]>([]);
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
+
+  const [revealedIncidents, setRevealedIncidents] = useState<Set<string>>(new Set());
 
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
@@ -59,6 +76,19 @@ const AdminDashboard = () => {
   useEffect(() => { 
     fetchStudents(); 
   }, [fetchStudents]);
+
+  const toggleRevealIdentity = (incidentId: string) => {
+    const newRevealed = new Set(revealedIncidents);
+    if (newRevealed.has(incidentId)) {
+      newRevealed.delete(incidentId);
+    } else {
+      newRevealed.add(incidentId);
+      toast.warning("Identity Revealed. This action is logged for compliance.", {
+        style: { background: '#fee2e2', color: '#991b1b', border: '1px solid #f87171' }
+      });
+    }
+    setRevealedIncidents(newRevealed);
+  };
 
   const updateStudentStatus = async (id: string, newStatus: string) => {
     try {
@@ -136,15 +166,12 @@ const AdminDashboard = () => {
     }
   };
 
-  // Base location/status filter
   const filteredIncidents = filterIncidents(locationFilter === 'all' ? undefined : locationFilter, statusFilter === 'all' ? undefined : statusFilter);
   
-  // Secondary local filter for specific student history
   const finalIncidents = studentFilter 
     ? filteredIncidents.filter(inc => inc.reportedBy === studentFilter) 
     : filteredIncidents;
 
-  // --- NEW: CSV EXPORT FUNCTION ---
   const exportToCSV = () => {
     const dataToExport = finalIncidents.length > 0 ? finalIncidents : incidents;
     const headers = ['Location', 'Type', 'Status', 'Reported By', 'Date', 'Description'];
@@ -155,7 +182,7 @@ const AdminDashboard = () => {
       `"${inc.status}"`,
       `"${inc.reportedBy}"`,
       `"${new Date(inc.timestamp).toLocaleString()}"`,
-      `"${inc.description.replace(/"/g, '""')}"` 
+      `"${inc.description.replace('[ANONYMOUS_FLAG]', '').replace(/"/g, '""')}"` 
     ]);
 
     const csvContent = [headers.join(','), ...csvRows.map(e => e.join(','))].join('\n');
@@ -280,14 +307,21 @@ const AdminDashboard = () => {
                    </select>
                 </div>
                 
-                {/* --- THE NEW CSV BUTTON --- */}
                 <Button variant="outline" size="sm" onClick={exportToCSV} className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100 flex-shrink-0">
                   Download CSV
                 </Button>
              </div>
              
              <div className="space-y-4">
-                {finalIncidents.map(inc => (
+                {finalIncidents.map(inc => {
+                  const isAnonymousReport = inc.description.includes('[ANONYMOUS_FLAG]');
+                  const isRevealed = revealedIncidents.has(inc.id);
+                  const showIdentity = !isAnonymousReport || isRevealed;
+
+                  const reporterData = students.find(s => s.email === inc.reportedBy);
+                  const reporterPhone = reporterData?.phone ? reporterData.phone : 'No phone linked';
+
+                  return (
                     <Card key={inc.id} className="bg-white border-none shadow-sm overflow-hidden hover:shadow-md transition-all">
                         <div className={`h-1 w-full ${inc.status === 'resolved' ? 'bg-green-500' : 'bg-blue-600'}`} />
                         <CardContent className="p-4">
@@ -307,7 +341,7 @@ const AdminDashboard = () => {
                                     {(() => {
                                       const hasEvidence = inc.description.includes('[EVIDENCE]:');
                                       const hasRemarks = inc.description.includes('[ADMIN REMARKS]:');
-                                      let mainText = inc.description;
+                                      let mainText = inc.description.replace('[ANONYMOUS_FLAG]', '').trim();
                                       let evidenceUrl = '';
                                       let adminRemarks = '';
 
@@ -325,7 +359,10 @@ const AdminDashboard = () => {
                                       return (
                                         <div className="space-y-2">
                                           <div className="bg-gray-50 p-3 rounded-lg border">
-                                            <p className="text-sm text-gray-600 italic break-words whitespace-pre-wrap">"{mainText}"</p>
+                                            <div className="text-sm text-gray-600 italic break-words whitespace-pre-wrap">
+                                              {/* Function automatically converts Google Map URLs to clickable links */}
+                                              {renderTextWithLinks(`"${mainText}"`)}
+                                            </div>
                                             {evidenceUrl && (
                                               <div className="mt-2 pt-2 border-t border-gray-200">
                                                 <a href={evidenceUrl.startsWith('http') || evidenceUrl.startsWith('data:') ? evidenceUrl : `https://${evidenceUrl}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded-md max-w-full">
@@ -344,8 +381,30 @@ const AdminDashboard = () => {
                                         </div>
                                       );
                                     })()}
-                                    <p className="text-[10px] text-gray-400">Reporter: {inc.reportedBy} • {new Date(inc.timestamp).toLocaleTimeString()}</p>
+
+                                    <div className="mt-3 p-2 bg-gray-50 rounded-md border border-gray-100 flex flex-wrap items-center gap-x-4 gap-y-2">
+                                      <p className="text-[11px] text-gray-500 flex items-center gap-1">
+                                        <Users className="w-3 h-3" /> 
+                                        <strong>Reporter:</strong> 
+                                        <span className="text-gray-900 font-mono">
+                                          {showIdentity ? inc.reportedBy : 'Anonymous'}
+                                        </span>
+                                      </p>
+                                      
+                                      <p className="text-[11px] text-gray-500 flex items-center gap-1">
+                                        <Phone className="w-3 h-3" />
+                                        <strong>Phone:</strong>
+                                        <span className="text-gray-900 font-mono">
+                                          {showIdentity ? reporterPhone : 'Hidden'}
+                                        </span>
+                                      </p>
+                                      
+                                      <p className="text-[11px] text-gray-400 ml-auto">
+                                        {new Date(inc.timestamp).toLocaleString()}
+                                      </p>
+                                    </div>
                                 </div>
+
                                 <div className="flex flex-col items-end gap-3 ml-4 min-w-[140px]">
                                    {canModifyStatus && inc.status !== 'resolved' ? (
                                       <Select defaultValue={inc.status} onValueChange={(val) => handleStatusChangeRequest(inc.id, val)}>
@@ -353,11 +412,25 @@ const AdminDashboard = () => {
                                         <SelectContent>{INCIDENT_STATUSES.map(s => (<SelectItem key={s.value} value={s.value} className={s.value === 'resolved' ? 'text-green-600 font-bold' : ''}>{s.label}</SelectItem>))}</SelectContent>
                                       </Select>
                                    ) : (<Badge variant="outline" className={inc.status === 'resolved' ? 'bg-green-100 text-green-800 border-green-200' : ''}>{inc.status.replace('_', ' ')}</Badge>)}
+                                   
+                                   {/* Moved the Override Button to sit underneath the dropdown */}
+                                   {isAnonymousReport && !isRevealed && isSuperAdmin && (
+                                      <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        onClick={() => toggleRevealIdentity(inc.id)}
+                                        className="mt-2 w-full border-red-200 text-red-600 bg-red-50 hover:bg-red-100 h-auto py-1.5 px-2 text-[9px] uppercase font-bold tracking-wider leading-tight text-center"
+                                      >
+                                        <Eye className="w-3 h-3 mr-1 flex-shrink-0" />
+                                        Reveal Identity
+                                      </Button>
+                                    )}
                                 </div>
                             </div>
                         </CardContent>
                     </Card>
-                ))}
+                  );
+                })}
                 {finalIncidents.length === 0 && <p className="text-center text-gray-400 py-10">No incidents found.</p>}
              </div>
           </TabsContent>

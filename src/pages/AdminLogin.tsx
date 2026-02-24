@@ -75,7 +75,7 @@ const AdminLogin = () => {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="admin@college.edu"
+                  placeholder="Your admin email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={loading}
@@ -88,7 +88,7 @@ const AdminLogin = () => {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="Pasword"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}

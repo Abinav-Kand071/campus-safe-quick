@@ -1,15 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth'; // Import our Auth Hook
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Loader2, Fingerprint } from 'lucide-react'; // Added Fingerprint icon
+import { Eye, EyeOff, Loader2, Fingerprint, Phone } from 'lucide-react'; 
 
-// Error Type Helper
 interface SupabaseError {
   message?: string;
   code?: string;
@@ -17,9 +16,8 @@ interface SupabaseError {
 
 const StudentLogin = () => {
   const navigate = useNavigate();
-  const { login } = useAuth(); // We use the global login function
+  const { login } = useAuth(); 
   
-  // Toggle between "Login" and "Sign Up"
   const [isLoginMode, setIsLoginMode] = useState(false); 
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -28,6 +26,7 @@ const StudentLogin = () => {
     name: '',
     collegeId: '',
     biometricId: '',
+    phoneNumber: '', // --- NEW: Mobile Phone State ---
     password: '',
     confirmPassword: ''
   });
@@ -40,25 +39,23 @@ const StudentLogin = () => {
     e.preventDefault();
     setLoading(true);
 
-    const { name, collegeId, biometricId, password, confirmPassword } = formData;
+    const { name, collegeId, biometricId, phoneNumber, password, confirmPassword } = formData;
 
     try {
       // ==========================================
       // MODE 1: LOG IN (Existing Student)
       // ==========================================
       if (isLoginMode) {
-        // 1. Validation: Require Biometric ID here too!
         if (!collegeId || !password || !biometricId) {
           toast.error('Please enter College ID, Biometric ID, and Password');
           setLoading(false);
           return;
         }
 
-        // 2. Extra Security Check: Verify Biometric ID matches the user in DB
-        // We simulate the hardware check here.
+        // Check the biometric_id column, NOT the phone column
         const { data: userCheck, error: checkError } = await supabase
           .from('users')
-          .select('phone') // We stored biometricId in the 'phone' column
+          .select('biometric_id') 
           .eq('email', collegeId)
           .single();
 
@@ -68,23 +65,21 @@ const StudentLogin = () => {
           return;
         }
 
-        // THE CHECK: Does the typed biometric ID match the stored one?
-        if (userCheck.phone !== biometricId) {
+        if (userCheck.biometric_id !== biometricId) {
           toast.error('Biometric ID does not match our records.');
           setLoading(false);
           return;
         }
 
-        // 3. If Biometric matches, proceed with Standard Login
         await login(collegeId, password, 'student');
       } 
       
       // ==========================================
-      // MODE 2: SIGN UP (New Request) - UNTOUCHED
+      // MODE 2: SIGN UP (New Request)
       // ==========================================
       else {
-        // Validation
-        if (!name.trim() || !collegeId.trim() || !biometricId.trim() || !password || !confirmPassword) {
+        // Validation now includes phoneNumber
+        if (!name.trim() || !collegeId.trim() || !biometricId.trim() || !phoneNumber.trim() || !password || !confirmPassword) {
           toast.error('Please fill in all fields');
           setLoading(false); return;
         }
@@ -97,22 +92,22 @@ const StudentLogin = () => {
           setLoading(false); return;
         }
 
-        // Send to Database
+        // Send to Database mapping correct columns
         const { error } = await supabase.from('users').insert({
           name: name,
-          email: collegeId,      // College ID acts as email
+          email: collegeId,      
           password: password,    
           role: 'student',
           status: 'pending',     
-          phone: biometricId     
+          phone: phoneNumber,         // Real mobile number goes here
+          biometric_id: biometricId   // Fingerprint ID goes here
         });
 
         if (error) throw error;
 
         toast.success('Request Sent! Switch to Login to check status.');
-        setIsLoginMode(true); // Automatically switch them to login screen
+        setIsLoginMode(true); 
         
-        // Optional: Clear password fields for safety
         setFormData(prev => ({ ...prev, password: '', confirmPassword: '' }));
       }
 
@@ -128,10 +123,9 @@ const StudentLogin = () => {
         code = errorObj.code || '';
       }
 
-      // Handle Duplicate User Error
       if (code === '23505' || message.toLowerCase().includes('duplicate')) {
         toast.error('This College ID is already registered! Please Login instead.');
-        setIsLoginMode(true); // Switch them to login mode helpfully
+        setIsLoginMode(true); 
       } else {
         toast.error(message);
       }
@@ -156,7 +150,6 @@ const StudentLogin = () => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {/* NAME: Only for Sign Up */}
             {!isLoginMode && (
               <div className="space-y-2 animate-in slide-in-from-top-2">
                 <Label htmlFor="name">Full Name</Label>
@@ -169,11 +162,21 @@ const StudentLogin = () => {
               <Input id="collegeId" name="collegeId" placeholder="00248-XX-000" value={formData.collegeId} onChange={handleChange} />
             </div>
 
-            {/* BIOMETRIC ID: NOW VISIBLE IN BOTH MODES */}
+            {/* --- NEW: MOBILE PHONE NUMBER INPUT --- */}
+            {!isLoginMode && (
+              <div className="space-y-2 animate-in slide-in-from-top-2">
+                <Label htmlFor="phoneNumber" className="flex items-center gap-2">
+                  Mobile Number
+                  <Phone className="w-3 h-3 text-green-600" />
+                </Label>
+                <Input id="phoneNumber" name="phoneNumber" type="tel" placeholder="+91 ..." value={formData.phoneNumber} onChange={handleChange} />
+              </div>
+            )}
+
             <div className="space-y-2">
                <Label htmlFor="biometricId" className="flex items-center gap-2">
                 Biometric ID
-                {isLoginMode && <Fingerprint className="w-3 h-3 text-blue-500" />}
+                <Fingerprint className="w-3 h-3 text-blue-500" />
               </Label>
               <Input id="biometricId" name="biometricId" placeholder="00000-00000" value={formData.biometricId} onChange={handleChange} />
             </div>
@@ -200,7 +203,6 @@ const StudentLogin = () => {
               </div>
             </div>
 
-            {/* CONFIRM PASSWORD: Only for Sign Up */}
             {!isLoginMode && (
               <div className="space-y-2 animate-in slide-in-from-top-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>

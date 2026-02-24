@@ -10,16 +10,32 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Shield, LogOut, MapPin, AlertTriangle, Send, History, Clock, CheckCircle, Loader2, EyeOff, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
+import { Shield, LogOut, MapPin, AlertTriangle, Send, History, Clock, CheckCircle, Loader2, EyeOff, Link as LinkIcon, CheckCircle2, PhoneCall } from 'lucide-react';
 import { toast } from 'sonner';
 import { CAMPUS_LOCATIONS, INCIDENT_TYPES, CampusLocation, IncidentType, Incident } from '@/types';
+
+// Helper function to turn URLs in text into clickable hyperlinks
+const renderTextWithLinks = (text: string) => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) => {
+    if (part.match(urlRegex)) {
+      return (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 font-bold underline break-all">
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
+};
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { incidents, addIncident } = useIncidents();
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<boolean>(false);
   const [myIncidents, setMyIncidents] = useState<Incident[]>([]);
   const [formData, setFormData] = useState({
     type: '' as IncidentType | '',
@@ -65,19 +81,21 @@ const StudentDashboard = () => {
 
     try {
       setLoading(true);
-      const reporterId = formData.isAnonymous 
-        ? 'Anonymous' 
-        : (user?.email || user?.id || 'Unknown Student');
+      const reporterId = user?.email || user?.id || 'Unknown Student';
       
+      const anonFlag = formData.isAnonymous ? '\n\n[ANONYMOUS_FLAG]' : '';
+      const evidence = formData.evidenceLink ? `\n\n[EVIDENCE]: ${formData.evidenceLink}` : '';
+      const finalDescription = formData.description + evidence + anonFlag;
+
       const result = await addIncident(
         formData.location as CampusLocation,
         formData.type as IncidentType,
-        formData.description + (formData.evidenceLink ? `\n\n[EVIDENCE]: ${formData.evidenceLink}` : ''), 
+        finalDescription, 
         reporterId
       );
       
       if (result) {
-        toast.success(formData.isAnonymous ? 'Anonymous Report Sent!' : 'Incident reported successfully!');
+        toast.success(formData.isAnonymous ? 'Anonymous Report Sent Securely!' : 'Incident reported successfully!');
         localStorage.setItem('last_report_timestamp', Date.now().toString());
         setFormData({ type: '', location: '', description: '', evidenceLink: '', isAnonymous: false });
       }
@@ -85,6 +103,50 @@ const StudentDashboard = () => {
       toast.error('Failed to report incident');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSOS = () => {
+    window.location.href = 'tel:112';
+
+    if ('geolocation' in navigator) {
+      toast.info("Acquiring GPS location for security...");
+      
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const reporterId = user?.email || user?.id || 'Unknown Student';
+            
+            // FIXED: Corrected string interpolation for latitude
+            const mapUrl = `http://googleusercontent.com/maps.google.com/?q=${lat},${lng}`;
+            const sosDescription = `🚨 CRITICAL SOS ALERT 🚨\n\nGoogle Maps Location:\n${mapUrl}\n\nStudent Details:\nName: ${user?.name || 'Unknown'}\nEmail: ${user?.email || 'N/A'}\nID: ${reporterId}`;
+
+            // Replace the two fallback lines with these clean ones:
+            const fallbackLocation: CampusLocation = 'GPS Location';
+            const fallbackType: IncidentType = 'SOS';
+
+            await addIncident(
+              fallbackLocation,
+              fallbackType,
+              sosDescription,
+              reporterId
+            );
+            
+            toast.success("Security has been notified of your exact location!");
+          } catch (err) {
+            console.error(err);
+            toast.error("Failed to send GPS data to security.");
+          }
+        },
+        (error) => {
+          toast.error("Please enable location services so security can find you!");
+        },
+        { enableHighAccuracy: true }
+      );
+    } else {
+      toast.error("Geolocation is not supported by your browser.");
     }
   };
 
@@ -98,7 +160,7 @@ const StudentDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-20 relative">
       <header className="sticky top-0 z-50 glass border-b border-border bg-white/80 backdrop-blur-md">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -133,7 +195,7 @@ const StudentDashboard = () => {
             <Card className="glass border-red-100 shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-red-600"><AlertTriangle className="w-5 h-5" /> New Report</CardTitle>
-                <CardDescription>Emergency? Call 112.</CardDescription>
+                <CardDescription>Not an emergency? Fill out the form below.</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -199,11 +261,10 @@ const StudentDashboard = () => {
                 <Card className="glass border-dashed"><CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground"><CheckCircle className="w-12 h-12 mb-4 opacity-20" /><p>No reports found.</p></CardContent></Card>
               ) : (
                 myIncidents.map((incident) => {
-                  // --- THE MAGIC PARSING LOGIC ---
                   const hasEvidence = incident.description.includes('[EVIDENCE]:');
                   const hasRemarks = incident.description.includes('[ADMIN REMARKS]:');
-
-                  let mainText = incident.description;
+                  let mainText = incident.description.replace('[ANONYMOUS_FLAG]', '').trim();
+                  
                   let evidenceUrl = '';
                   let adminRemarks = '';
 
@@ -232,12 +293,10 @@ const StudentDashboard = () => {
                         </div>
 
                         <div className="space-y-3 mb-3">
-                          {/* Original Description */}
-                          <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 border italic break-words">
-                            "{mainText}"
+                          <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 border italic break-words whitespace-pre-wrap">
+                            {renderTextWithLinks(`"${mainText}"`)}
                           </div>
 
-                          {/* Evidence Button */}
                           {evidenceUrl && (
                             <div>
                               <a
@@ -252,7 +311,6 @@ const StudentDashboard = () => {
                             </div>
                           )}
 
-                          {/* Admin Resolution Feedback */}
                           {adminRemarks && (
                             <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                               <div className="flex items-center gap-2 mb-1">
@@ -274,6 +332,16 @@ const StudentDashboard = () => {
           </TabsContent>
         </Tabs>
       </main>
+
+      <Button 
+        onClick={handleSOS} 
+        className="fixed bottom-6 right-6 h-16 w-16 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-[0_0_20px_rgba(220,38,38,0.6)] flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 z-50"
+        title="Emergency SOS"
+      >
+        <PhoneCall className="w-6 h-6 mb-0.5" />
+        <span className="text-[10px] font-black uppercase tracking-widest">SOS</span>
+      </Button>
+
     </div>
   );
 };

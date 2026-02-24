@@ -7,9 +7,9 @@ export const CAMPUS_LOCATIONS = [
   'Block R9',
   'Btech EM Main Block',
   'New Block',
-  'Playground',
+  'Ground',
   'Pharmacy Block',
-  'Parking',
+  'Staff Parking',
   'Boys Hostel',
   'RC Main Block',
   'Girls Hostel',
@@ -19,7 +19,13 @@ export const CAMPUS_LOCATIONS = [
   'Block T',
   'Gate C',
   'Gate B',
-  'Gate A'
+  'Basketball Court',
+  'Party Office',
+  'R&D Block',
+  'Mechanical RC Block',
+  'Student Parking',
+  'Gate A',
+  'GPS Location' // Added to handle off-grid SOS triggers securely
 ] as const;
 
 // Then we create the Type automatically from that array.
@@ -35,6 +41,7 @@ export type IncidentType =
   | 'theft'
   | 'suspicious_activity'
   | 'vandalism'
+  | 'SOS'
   | 'other';
 
 export const INCIDENT_TYPES: { value: IncidentType; label: string }[] = [
@@ -45,6 +52,7 @@ export const INCIDENT_TYPES: { value: IncidentType; label: string }[] = [
   { value: 'theft', label: 'Theft' },
   { value: 'suspicious_activity', label: 'Suspicious Activity' },
   { value: 'vandalism', label: 'Vandalism' },
+  { value: 'SOS', label: 'Emergency SOS' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -80,7 +88,7 @@ export interface User {
   email: string; // Acts as College ID
   role: UserRole;
   status: string; // 'pending' | 'approved' | 'banned'
-  phone?: string; // Biometric ID
+  phone?: string; // Captured securely for verification
   is_banned?: boolean;
 }
 
