@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Incident, CampusLocation, IncidentType, IncidentStatus, CAMPUS_LOCATIONS } from '@/types';
 import { toast } from 'sonner';
@@ -18,7 +18,32 @@ type IncidentDBRow = {
 
 export const useIncidents = () => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
+  
+  // --- ALARM STATE ---
+  const [isAlarmRinging, setIsAlarmRinging] = useState<boolean>(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Initialize Audio Object
+  useEffect(() => {
+    audioRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg');
+    audioRef.current.loop = true; 
+  }, []);
+
+  const stopAlarm = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0; // Reset to beginning
+      setIsAlarmRinging(false);
+    }
+  };
+
+  const playAlarm = () => {
+    if (audioRef.current) {
+      audioRef.current.play().catch((e: unknown) => console.error("Browser autoplay blocked the alarm:", e));
+      setIsAlarmRinging(true);
+    }
+  };
 
   // --- 1. FETCH INCIDENTS ---
   const fetchIncidents = async () => {
@@ -32,7 +57,7 @@ export const useIncidents = () => {
 
       const rows = (data || []) as IncidentDBRow[];
 
-      const adaptedData: Incident[] = rows.map(row => ({
+      const adaptedData: Incident[] = rows.map((row) => ({
         id: row.id,
         location: row.location,
         type: row.type,
@@ -56,23 +81,38 @@ export const useIncidents = () => {
   useEffect(() => { 
     fetchIncidents();
     
-    // --- REALTIME SUBSCRIPTION (UPGRADED) ---
-    // Listening to '*' means it triggers on INSERT, UPDATE, and DELETE
+    // --- REALTIME SUBSCRIPTION (UPGRADED WITH ALARM) ---
     const channel = supabase
       .channel('public:incidents')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, (payload) => {
-        // If it's a brand new report, show a toast notification
+        
         if (payload.eventType === 'INSERT') {
           const newRow = payload.new as IncidentDBRow;
-          toast.message("⚠️ New Incident Reported!", { description: `${newRow.type} at ${newRow.location}` });
+          
+          // Force lowercase to avoid case-sensitivity bugs
+          const safeType = newRow.type.toLowerCase();
+          
+          // Trigger Alarm for Critical Incidents
+          if (['fire', 'medical', 'sos'].includes(safeType)) {
+            console.log("🚨 ALARM TRIGGERED! Attempting to play audio...");
+            playAlarm();
+            toast.error(`🚨 CRITICAL ALERT: ${newRow.type.toUpperCase()} at ${newRow.location}`, { duration: 10000 });
+          } else {
+            toast.message("⚠️ New Incident Reported!", { description: `${newRow.type} at ${newRow.location}` });
+          }
         }
 
-        // Refetch the data to guarantee all screens (Admin & Student) are 100% in sync
         fetchIncidents();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { 
+      supabase.removeChannel(channel); 
+      // Clean up audio on unmount to prevent memory leaks
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
   }, []);
 
   // --- 2. ADD INCIDENT ---
@@ -122,11 +162,10 @@ export const useIncidents = () => {
   // --- 3. UPDATE STATUS ---
   const updateIncidentStatus = async (id: string, status: IncidentStatus) => {
     try {
-      // We don't need to manually update state here anymore because Realtime will catch the DB update and trigger fetchIncidents()
       const { error } = await supabase.from('incidents').update({ status }).eq('id', id);
       if (error) throw error;
       toast.success(`Status updated to ${status.replace('_', ' ')}`);
-    } catch (err) {
+    } catch (err: unknown) {
       toast.error("Failed to update status");
     }
   };
@@ -134,9 +173,9 @@ export const useIncidents = () => {
   // --- 4. RELATIVE HEATMAP LOGIC ---
   const getLocationStats = () => {
     const initialStats: Record<string, number> = {};
-    CAMPUS_LOCATIONS.forEach(loc => initialStats[loc] = 0);
+    CAMPUS_LOCATIONS.forEach(loc => { initialStats[loc] = 0; });
 
-    incidents.forEach(inc => {
+    incidents.forEach((inc) => {
       if ((inc.location in initialStats) && inc.status !== 'resolved') { 
          initialStats[inc.location] = (initialStats[inc.location] || 0) + 1;
       }
@@ -156,12 +195,22 @@ export const useIncidents = () => {
   };
 
   const filterIncidents = (location?: CampusLocation | 'all', status?: IncidentStatus | 'all') => {
-    return incidents.filter(inc => {
+    return incidents.filter((inc) => {
       const locMatch = !location || location === 'all' || inc.location === location;
       const statusMatch = !status || status === 'all' || inc.status === status;
       return locMatch && statusMatch;
     });
   };
 
-  return { incidents, loading, addIncident, updateIncidentStatus, getLocationStats, filterIncidents };
+  // Exposed new variables to the hook
+  return { 
+    incidents, 
+    loading, 
+    addIncident, 
+    updateIncidentStatus, 
+    getLocationStats, 
+    filterIncidents, 
+    isAlarmRinging, 
+    stopAlarm 
+  };
 };

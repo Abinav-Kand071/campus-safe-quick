@@ -2,16 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-
-export interface User {
-  id: string;
-  name: string;
-  email: string; 
-  role: 'student' | 'admin' | 'security_head' | 'principal' | 'hod' | 'class_in_charge';
-  status: string;
-  phone?: string; 
-  is_banned?: boolean;
-}
+import { User } from '@/types'; 
 
 interface AuthContextType {
   user: User | null;
@@ -26,7 +17,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -51,6 +42,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       setLoading(true);
 
+      // Bypass block for immediate demo access
       if (email === '1admin@college.edu' && pass === 'admin123') {
         const fakeAdmin: User = {
           id: 'force-admin-id',
@@ -80,6 +72,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (data.status === 'pending') throw new Error('Account pending approval');
       if (data.status === 'banned') throw new Error('Account banned');
 
+      // Strictly map the database return to our TypeScript interface
       const loggedUser: User = {
         id: data.id,
         name: data.name,

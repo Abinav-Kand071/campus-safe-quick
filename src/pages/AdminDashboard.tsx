@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth, User } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/useAuth';
+import { User } from '@/types';
 import { useIncidents } from '@/hooks/useIncidents';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { 
   Shield, LogOut, Filter, MapPin, UserPlus, Loader2, Key, 
-  ChevronDown, ChevronUp, Ban, Check, Undo, Activity, Users, BarChart3, Lock, Link as LinkIcon, CheckCircle2, MessageSquare, X, Eye, Phone
+  ChevronDown, ChevronUp, Ban, Check, Undo, Activity, Users, BarChart3, Lock, Link as LinkIcon, CheckCircle2, MessageSquare, X, Eye, Phone, VolumeX, BellRing
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CampusLocation, IncidentStatus, CAMPUS_LOCATIONS, INCIDENT_STATUSES } from '@/types';
@@ -32,7 +33,7 @@ const renderTextWithLinks = (text: string) => {
   return parts.map((part, i) => {
     if (part.match(urlRegex)) {
       return (
-        <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 font-semibold underline">
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 font-semibold underline break-all">
           {part}
         </a>
       );
@@ -44,7 +45,7 @@ const renderTextWithLinks = (text: string) => {
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout, getAllStudents } = useAuth();
-  const { filterIncidents, getLocationStats, incidents, updateIncidentStatus } = useIncidents();
+  const { filterIncidents, getLocationStats, incidents, updateIncidentStatus, isAlarmRinging, stopAlarm } = useIncidents();
 
   const [activeTab, setActiveTab] = useState<string>('feed');
   const [studentFilter, setStudentFilter] = useState<string | null>(null);
@@ -114,9 +115,17 @@ const AdminDashboard = () => {
     try {
       const { data: existing } = await supabase.from('users').select('id').eq('email', newUser.email).maybeSingle();
       if (existing) { toast.error("Email exists!"); setAddingUser(false); return; }
+      
       const { error } = await supabase.from('users').insert([{
-        name: newUser.name, email: newUser.email, phone: newUser.phone, role: newUser.role, status: 'approved', password: newUser.password 
+        name: newUser.name, 
+        email: newUser.email, 
+        phone: newUser.phone, 
+        role: newUser.role, 
+        status: 'approved', 
+        password: newUser.password,
+        biometric_id: null 
       }]);
+
       if (error) throw error;
       toast.success(`${newUser.role.toUpperCase()} Authorized!`);
       setNewUser({ name: '', email: '', phone: '', role: 'hod', password: '' });
@@ -176,14 +185,19 @@ const AdminDashboard = () => {
     const dataToExport = finalIncidents.length > 0 ? finalIncidents : incidents;
     const headers = ['Location', 'Type', 'Status', 'Reported By', 'Date', 'Description'];
     
-    const csvRows = dataToExport.map(inc => [
-      `"${inc.location}"`,
-      `"${inc.type}"`,
-      `"${inc.status}"`,
-      `"${inc.reportedBy}"`,
-      `"${new Date(inc.timestamp).toLocaleString()}"`,
-      `"${inc.description.replace('[ANONYMOUS_FLAG]', '').replace(/"/g, '""')}"` 
-    ]);
+    const csvRows = dataToExport.map(inc => {
+      const isAnonymousReport = inc.description.includes('[ANONYMOUS_FLAG]');
+      const reporterValue = isAnonymousReport ? 'Anonymous' : inc.reportedBy;
+
+      return [
+        `"${inc.location}"`,
+        `"${inc.type}"`,
+        `"${inc.status}"`,
+        `"${reporterValue}"`,
+        `"${new Date(inc.timestamp).toLocaleString()}"`,
+        `"${inc.description.replace('[ANONYMOUS_FLAG]', '').replace(/"/g, '""')}"` 
+      ];
+    });
 
     const csvContent = [headers.join(','), ...csvRows.map(e => e.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -206,14 +220,31 @@ const AdminDashboard = () => {
   const getHeatmapColor = (severity: string) => {
     switch (severity) {
       case 'critical': return 'bg-red-900 border-red-700 text-white shadow-md scale-105'; 
-      case 'high': return 'bg-red-50 border-red-200 text-red-900';
-      case 'medium': return 'bg-yellow-50 border-yellow-200 text-yellow-900';
+      case 'high': return 'bg-orange-100 border-orange-300 text-orange-900';
+      case 'medium': return 'bg-yellow-50 border-yellow-300 text-yellow-900';
+      case 'low': return 'bg-blue-50 border-blue-300 text-blue-800'; // The active but low state
+      case 'safe': return 'bg-emerald-50 border-emerald-200 text-emerald-700'; // Null/0 incidents = GREEN
       default: return 'bg-white border-gray-100 text-gray-400 hover:border-gray-200';
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
+      
+      {/* THE ALARM BUTTON - ONLY SHOWS WHEN RINGING */}
+      {isAlarmRinging && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top-10">
+          <Button 
+            onClick={stopAlarm} 
+            className="bg-red-600 hover:bg-red-700 text-white font-black text-lg px-8 py-8 rounded-2xl shadow-[0_0_40px_rgba(220,38,38,0.8)] border-4 border-red-200 flex items-center gap-3 animate-pulse"
+          >
+            <BellRing className="w-8 h-8 animate-bounce" />
+            CRITICAL ALERT - SILENCE ALARM
+            <VolumeX className="w-8 h-8" />
+          </Button>
+        </div>
+      )}
+
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
